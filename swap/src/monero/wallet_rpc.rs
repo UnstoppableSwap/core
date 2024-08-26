@@ -42,7 +42,12 @@ const MONERO_DAEMONS: [MoneroDaemon; 17] = [
     MoneroDaemon::new("stagenet.community.rino.io", 38081, Network::Stagenet),
 ];
 
-#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+#[cfg(not(any(
+    target_os = "macos",
+    target_os = "linux",
+    target_os = "windows",
+    target_os = "ios"
+)))]
 compile_error!("unsupported operating system");
 
 #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
@@ -50,9 +55,9 @@ const DOWNLOAD_URL: &str = "https://downloads.getmonero.org/cli/monero-mac-x64-v
 #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
 const DOWNLOAD_HASH: &str = "7f8bd9364ef16482b418aa802a65be0e4cc660c794bb5d77b2d17bc84427883a";
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(all(any(target_os = "macos", target_os = "ios"), target_arch = "aarch64"))]
 const DOWNLOAD_URL: &str = "https://downloads.getmonero.org/cli/monero-mac-armv8-v0.18.3.1.tar.bz2";
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(all(any(target_os = "macos", target_os = "ios"), target_arch = "aarch64"))]
 const DOWNLOAD_HASH: &str = "915288b023cb5811e626e10052adc6ac5323dd283c5a25b91059b0fb86a21fb6";
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
@@ -71,7 +76,7 @@ const DOWNLOAD_URL: &str = "https://downloads.getmonero.org/cli/monero-win-x64-v
 #[cfg(target_os = "windows")]
 const DOWNLOAD_HASH: &str = "35dcc4bee4caad3442659d37837e0119e4649a77f2e3b5e80dd6d9b8fc4fb6ad";
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "ios"))]
 const PACKED_FILE: &str = "monero-wallet-rpc";
 
 #[cfg(target_os = "windows")]
