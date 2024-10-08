@@ -11,7 +11,7 @@ env:
   MACOS_ARM: "macos-latest"
   MACOS_INTEL: "macos-13"
   WINDOWS: "windows-latest"
-  CN_APPLICATION: "YOUR_ORG_NAME/YOUR_APP_NAME"
+  CN_APPLICATION: "UnstoppableSwap/unstoppableswap-gui-rs"
 
 jobs:
   draft:
