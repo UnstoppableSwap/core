@@ -267,6 +267,7 @@ where
                                         reason = "swap not found",
                                         "Rejecting cooperative XMR redeem request"
                                     );
+
                                     if self.swarm.behaviour_mut().cooperative_xmr_redeem.send_response(channel, Rejected { swap_id, reason: CooperativeXmrRedeemRejectReason::UnknownSwap }).is_err() {
                                         tracing::error!(swap_id = %swap_id, "Failed to reject cooperative XMR redeem request");
                                     }
@@ -348,12 +349,6 @@ where
                 next_transfer_proof = self.send_transfer_proof.next() => {
                     match next_transfer_proof {
                         Some(Ok((peer, transfer_proof, responder))) => {
-                            if !self.swarm.behaviour_mut().transfer_proof.is_connected(&peer) {
-                                tracing::warn!(%peer, "No active connection to peer, buffering transfer proof");
-                                self.buffered_transfer_proofs.entry(peer).or_default().push((transfer_proof, responder));
-                                continue;
-                            }
-
                             let id = self.swarm.behaviour_mut().transfer_proof.send_request(&peer, transfer_proof);
                             self.inflight_transfer_proofs.insert(id, responder);
                         },
@@ -492,7 +487,7 @@ where
 
         EventLoopHandle {
             recv_encrypted_signature: Some(encrypted_signature.1),
-            send_transfer_proof: Some(transfer_proof_sender),
+            transfer_proof_sender: Some(transfer_proof_sender),
         }
     }
 }
@@ -562,7 +557,14 @@ impl LatestRate for KrakenRate {
 #[derive(Debug)]
 pub struct EventLoopHandle {
     recv_encrypted_signature: Option<bmrng::RequestReceiver<bitcoin::EncryptedSignature, ()>>,
-    send_transfer_proof: Option<bmrng::RequestSender<monero::TransferProof, ()>>,
+
+    // This is a MSCP channel.
+    // Once you sent a transfer proof into the channel, the following will happen:
+    // 1. A boxed future closure (created in new_handle(...)) will receive the transfer proof
+    // 2. The future will resolve to a tuple of (PeerId, transfer_proof::Request, bmrng::Responder<()>)
+    // 3. Once the future resolves (event loop listens using self.send_transfer_proof.next()) the transfer proof will actually be sent to the peer
+    // over the libp2p network protocol
+    transfer_proof_sender: Option<bmrng::RequestSender<monero::TransferProof, ()>>,
 }
 
 impl EventLoopHandle {
@@ -582,12 +584,18 @@ impl EventLoopHandle {
     }
 
     pub async fn send_transfer_proof(&mut self, msg: monero::TransferProof) -> Result<()> {
-        self.send_transfer_proof
-            .take()
-            .context("Transfer proof was already sent")?
+        let sender = self
+            .transfer_proof_sender
+            .as_ref()
+            .context("Transfer proof sender is not available")?;
+
+        sender
             .send_receive(msg)
             .await
             .context("Failed to send transfer proof")?;
+
+        // Remove the sender after successful send
+        self.transfer_proof_sender.take();
 
         Ok(())
     }

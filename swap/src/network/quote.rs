@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use crate::network::json_pull_codec::JsonPullCodec;
 use crate::{asb, bitcoin, cli};
 use libp2p::core::ProtocolName;
@@ -55,7 +57,9 @@ pub fn asb() -> Behaviour {
     Behaviour::new(
         JsonPullCodec::default(),
         vec![(BidQuoteProtocol, ProtocolSupport::Inbound)],
-        RequestResponseConfig::default(),
+        RequestResponseConfig::default()
+            .set_request_timeout(Duration::from_secs(60))
+            .clone(),
     )
 }
 
@@ -67,7 +71,9 @@ pub fn cli() -> Behaviour {
     Behaviour::new(
         JsonPullCodec::default(),
         vec![(BidQuoteProtocol, ProtocolSupport::Outbound)],
-        RequestResponseConfig::default(),
+        RequestResponseConfig::default()
+            .set_request_timeout(Duration::from_secs(60))
+            .clone(),
     )
 }
 
