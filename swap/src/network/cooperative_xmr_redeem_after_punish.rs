@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use crate::monero::Scalar;
 use crate::network::cbor_request_response::CborCodec;
 use crate::{asb, cli};
@@ -55,7 +57,9 @@ pub fn alice() -> Behaviour {
     Behaviour::new(
         CborCodec::default(),
         vec![(CooperativeXmrRedeemProtocol, ProtocolSupport::Inbound)],
-        RequestResponseConfig::default(),
+        RequestResponseConfig::default()
+            .set_request_timeout(Duration::from_secs(60))
+            .clone(),
     )
 }
 
@@ -63,7 +67,9 @@ pub fn bob() -> Behaviour {
     Behaviour::new(
         CborCodec::default(),
         vec![(CooperativeXmrRedeemProtocol, ProtocolSupport::Outbound)],
-        RequestResponseConfig::default(),
+        RequestResponseConfig::default()
+            .set_request_timeout(Duration::from_secs(60))
+            .clone(),
     )
 }
 
