@@ -420,7 +420,7 @@ impl BobParams {
         format!(
             "{}/p2p/{}",
             self.alice_address.clone(),
-            self.alice_peer_id.clone().to_base58()
+            self.alice_peer_id.to_base58()
         )
     }
 

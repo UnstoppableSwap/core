@@ -1,4 +1,4 @@
-/// Helper macro to map a [`RequestResponseEvent`] to our [`OutEvent`].
+/// Helper macro to map a [`request_response::Event`] to our [`OutEvent`].
 ///
 /// This is primarily a macro and not a regular function because we use it for
 /// Alice and Bob and they have different [`OutEvent`]s that just happen to
@@ -8,7 +8,7 @@ macro_rules! impl_from_rr_event {
     ($protocol_event:ty, $behaviour_out_event:ty, $protocol:ident) => {
         impl From<$protocol_event> for $behaviour_out_event {
             fn from(event: $protocol_event) -> Self {
-                use ::libp2p::request_response::RequestResponseEvent::*;
+                use ::libp2p::request_response::Event::*;
                 use anyhow::anyhow;
 
                 match event {
@@ -30,8 +30,14 @@ macro_rules! impl_from_rr_event {
                                     peer,
                                 }
                             }
+                            Io(err) => {
+                                Self::Failure {
+                                    error: anyhow!("{} failed because of an IO error: {}", $protocol, err),
+                                    peer,
+                                }
+                            }
                             UnsupportedProtocols => Self::Other, // TODO: Report this and disconnected / ban the peer?
-                            ResponseOmission => Self::Other
+                            ResponseOmission => Self::Other,
                         }
                     }
                     OutboundFailure { peer, error, .. } => {
@@ -57,8 +63,14 @@ macro_rules! impl_from_rr_event {
                                     peer,
                                 }
                             }
+                            Io(err) => {
+                                Self::Failure {
+                                    error: anyhow!("{} failed because of an IO error: {}", $protocol, err),
+                                    peer,
+                                }
+                            }
                         }
-                    }
+                    },
                 }
             }
         }

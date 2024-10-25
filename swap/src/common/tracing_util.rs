@@ -84,6 +84,8 @@ fn env_filter(level_filter: LevelFilter) -> Result<EnvFilter> {
     Ok(EnvFilter::from_default_env()
         .add_directive(Directive::from_str(&format!("asb={}", &level_filter))?)
         .add_directive(Directive::from_str(&format!("swap={}", &level_filter))?)
+        // TODO(libp2p upgrade): Disable this again once we merge https://github.com/UnstoppableSwap/core/pull/109
+        .add_directive(Directive::from_str(&"libp2p=debug".to_string())?)
         .add_directive(Directive::from_str(&format!(
             "unstoppableswap-gui-rs={}",
             &level_filter

@@ -11,42 +11,35 @@ use crate::network::{
 use crate::protocol::alice::State3;
 use anyhow::{anyhow, Error, Result};
 use futures::FutureExt;
-use libp2p::core::connection::ConnectionId;
 use libp2p::core::muxing::StreamMuxerBox;
 use libp2p::core::transport::Boxed;
-use libp2p::dns::TokioDnsConfig;
-use libp2p::identify::{Identify, IdentifyConfig, IdentifyEvent};
-use libp2p::ping::{Ping, PingConfig, PingEvent};
-use libp2p::request_response::{RequestId, ResponseChannel};
+use libp2p::request_response::ResponseChannel;
 use libp2p::swarm::dial_opts::PeerCondition;
-use libp2p::swarm::{
-    IntoProtocolsHandler, NetworkBehaviour, NetworkBehaviourAction, PollParameters,
-    ProtocolsHandler,
-};
-use libp2p::tcp::TokioTcpConfig;
-use libp2p::websocket::WsConfig;
-use libp2p::{identity, Multiaddr, NetworkBehaviour, PeerId, Transport};
+use libp2p::swarm::NetworkBehaviour;
+use libp2p::{Multiaddr, PeerId};
 use std::task::Poll;
 use std::time::Duration;
 use uuid::Uuid;
 
 pub mod transport {
+    use libp2p::{dns, identity, tcp, Transport};
+
     use super::*;
 
     /// Creates the libp2p transport for the ASB.
     pub fn new(identity: &identity::Keypair) -> Result<Boxed<(PeerId, StreamMuxerBox)>> {
-        let tcp = TokioTcpConfig::new().nodelay(true);
-        let tcp_with_dns = TokioDnsConfig::system(tcp)?;
-        let websocket_with_dns = WsConfig::new(tcp_with_dns.clone());
+        let tcp = tcp::tokio::Transport::new(tcp::Config::new().nodelay(true));
+        let tcp_with_dns = dns::tokio::Transport::system(tcp)?;
 
-        let transport = tcp_with_dns.or_transport(websocket_with_dns).boxed();
-
-        authenticate_and_multiplex(transport, identity)
+        authenticate_and_multiplex(tcp_with_dns.boxed(), identity)
     }
 }
 
 pub mod behaviour {
-    use libp2p::swarm::behaviour::toggle::Toggle;
+    use libp2p::{
+        identify, identity, ping, request_response::OutboundRequestId,
+        swarm::behaviour::toggle::Toggle,
+    };
 
     use super::{rendezvous::RendezvousNode, *};
 
@@ -71,7 +64,7 @@ pub mod behaviour {
         },
         TransferProofAcknowledged {
             peer: PeerId,
-            id: RequestId,
+            id: OutboundRequestId,
         },
         EncryptedSignatureReceived {
             msg: encrypted_signature::Request,
@@ -108,7 +101,6 @@ pub mod behaviour {
             }
         }
     }
-
     /// A `NetworkBehaviour` that represents an XMR/BTC swap node as Alice.
     #[derive(NetworkBehaviour)]
     #[behaviour(out_event = "OutEvent", event_process = false)]
@@ -123,12 +115,12 @@ pub mod behaviour {
         pub transfer_proof: transfer_proof::Behaviour,
         pub cooperative_xmr_redeem: cooperative_xmr_redeem_after_punish::Behaviour,
         pub encrypted_signature: encrypted_signature::Behaviour,
-        pub identify: Identify,
+        pub identify: identify::Behaviour,
 
         /// Ping behaviour that ensures that the underlying network connection
         /// is still alive. If the ping fails a connection close event
         /// will be emitted that is picked up as swarm event.
-        ping: Ping,
+        ping: ping::Behaviour,
     }
 
     impl<LR> Behaviour<LR>
@@ -147,8 +139,11 @@ pub mod behaviour {
             let (identity, namespace) = identify_params;
             let agent_version = format!("asb/{} ({})", env!("CARGO_PKG_VERSION"), namespace);
             let protocol_version = "/comit/xmr/btc/1.0.0".to_string();
-            let identifyConfig = IdentifyConfig::new(protocol_version, identity.public())
+
+            let identifyConfig = identify::Config::new(protocol_version, identity.public())
                 .with_agent_version(agent_version);
+
+            let pingConfig = ping::Config::new();
 
             let behaviour = if rendezvous_nodes.is_empty() {
                 None
@@ -169,20 +164,20 @@ pub mod behaviour {
                 transfer_proof: transfer_proof::alice(),
                 encrypted_signature: encrypted_signature::alice(),
                 cooperative_xmr_redeem: cooperative_xmr_redeem_after_punish::alice(),
-                ping: Ping::new(PingConfig::new().with_keep_alive(true)),
-                identify: Identify::new(identifyConfig),
+                ping: ping::Behaviour::new(pingConfig),
+                identify: identify::Behaviour::new(identifyConfig),
             }
         }
     }
 
-    impl From<PingEvent> for OutEvent {
-        fn from(_: PingEvent) -> Self {
+    impl From<ping::Event> for OutEvent {
+        fn from(_: ping::Event) -> Self {
             OutEvent::Other
         }
     }
 
-    impl From<IdentifyEvent> for OutEvent {
-        fn from(_: IdentifyEvent) -> Self {
+    impl From<identify::Event> for OutEvent {
+        fn from(_: identify::Event) -> Self {
             OutEvent::Other
         }
     }
@@ -196,10 +191,15 @@ pub mod behaviour {
 
 pub mod rendezvous {
     use super::*;
+    use libp2p::identity;
     use libp2p::swarm::dial_opts::DialOpts;
-    use libp2p::swarm::DialError;
+    use libp2p::swarm::{
+        ConnectionDenied, ConnectionId, FromSwarm, THandler, THandlerInEvent, THandlerOutEvent,
+        ToSwarm,
+    };
     use std::collections::VecDeque;
     use std::pin::Pin;
+    use std::task::Context;
 
     #[derive(Clone, PartialEq)]
     enum ConnectionStatus {
@@ -275,87 +275,102 @@ pub mod rendezvous {
     }
 
     impl NetworkBehaviour for Behaviour {
-        type ProtocolsHandler =
-            <libp2p::rendezvous::client::Behaviour as NetworkBehaviour>::ProtocolsHandler;
-        type OutEvent = libp2p::rendezvous::client::Event;
+        type ConnectionHandler =
+            <libp2p::rendezvous::client::Behaviour as NetworkBehaviour>::ConnectionHandler;
+        type ToSwarm = libp2p::rendezvous::client::Event;
 
-        fn new_handler(&mut self) -> Self::ProtocolsHandler {
-            self.inner.new_handler()
+        fn handle_established_inbound_connection(
+            &mut self,
+            connection_id: ConnectionId,
+            peer: PeerId,
+            local_addr: &Multiaddr,
+            remote_addr: &Multiaddr,
+        ) -> Result<THandler<Self>, ConnectionDenied> {
+            self.inner.handle_established_inbound_connection(
+                connection_id,
+                peer,
+                local_addr,
+                remote_addr,
+            )
         }
 
-        fn addresses_of_peer(&mut self, peer_id: &PeerId) -> Vec<Multiaddr> {
-            for node in self.rendezvous_nodes.iter() {
-                if peer_id == &node.peer_id {
-                    return vec![node.address.clone()];
-                }
-            }
-
-            vec![]
+        fn handle_established_outbound_connection(
+            &mut self,
+            connection_id: ConnectionId,
+            peer: PeerId,
+            addr: &Multiaddr,
+            role_override: libp2p::core::Endpoint,
+        ) -> Result<THandler<Self>, ConnectionDenied> {
+            self.inner.handle_established_outbound_connection(
+                connection_id,
+                peer,
+                addr,
+                role_override,
+            )
         }
 
-        fn inject_connected(&mut self, peer_id: &PeerId) {
-            for i in 0..self.rendezvous_nodes.len() {
-                if peer_id == &self.rendezvous_nodes[i].peer_id {
-                    self.rendezvous_nodes[i].set_connection(ConnectionStatus::Connected);
-                    match &self.rendezvous_nodes[i].registration_status {
-                        RegistrationStatus::RegisterOnNextConnection => {
-                            self.register(i);
-                            self.rendezvous_nodes[i].set_registration(RegistrationStatus::Pending);
+        fn on_swarm_event(&mut self, event: FromSwarm<'_>) {
+            match event {
+                FromSwarm::ConnectionEstablished(e) => {
+                    let peer_id = e.peer_id;
+                    for i in 0..self.rendezvous_nodes.len() {
+                        if &peer_id == &self.rendezvous_nodes[i].peer_id {
+                            self.rendezvous_nodes[i].set_connection(ConnectionStatus::Connected);
+                            match &self.rendezvous_nodes[i].registration_status {
+                                RegistrationStatus::RegisterOnNextConnection => {
+                                    self.register(i);
+                                    self.rendezvous_nodes[i]
+                                        .set_registration(RegistrationStatus::Pending);
+                                }
+                                RegistrationStatus::Registered { .. }
+                                | RegistrationStatus::Pending => {}
+                            }
                         }
-                        RegistrationStatus::Registered { .. } => {}
-                        RegistrationStatus::Pending => {}
                     }
                 }
-            }
-        }
-
-        fn inject_disconnected(&mut self, peer_id: &PeerId) {
-            for i in 0..self.rendezvous_nodes.len() {
-                let node = &mut self.rendezvous_nodes[i];
-                if peer_id == &node.peer_id {
-                    node.connection_status = ConnectionStatus::Disconnected;
+                FromSwarm::ConnectionClosed(e) => {
+                    let peer_id = e.peer_id;
+                    for i in 0..self.rendezvous_nodes.len() {
+                        let node = &mut self.rendezvous_nodes[i];
+                        if &peer_id == &node.peer_id {
+                            node.connection_status = ConnectionStatus::Disconnected;
+                        }
+                    }
                 }
+                FromSwarm::DialFailure(e) => {
+                    if let Some(peer_id) = e.peer_id {
+                        for i in 0..self.rendezvous_nodes.len() {
+                            let node = &mut self.rendezvous_nodes[i];
+                            if peer_id == node.peer_id {
+                                node.connection_status = ConnectionStatus::Disconnected;
+                            }
+                        }
+                    }
+                }
+                _ => {}
             }
+            self.inner.on_swarm_event(event);
         }
 
-        fn inject_event(
+        fn on_connection_handler_event(
             &mut self,
             peer_id: PeerId,
-            connection: ConnectionId,
-            event: <<Self::ProtocolsHandler as IntoProtocolsHandler>::Handler as ProtocolsHandler>::OutEvent,
+            connection_id: ConnectionId,
+            event: THandlerOutEvent<Self>,
         ) {
-            self.inner.inject_event(peer_id, connection, event)
+            self.inner
+                .on_connection_handler_event(peer_id, connection_id, event)
         }
 
-        fn inject_dial_failure(
-            &mut self,
-            peer_id: Option<PeerId>,
-            _handler: Self::ProtocolsHandler,
-            _error: &DialError,
-        ) {
-            for i in 0..self.rendezvous_nodes.len() {
-                let node = &mut self.rendezvous_nodes[i];
-                if let Some(id) = peer_id {
-                    if id == node.peer_id {
-                        node.connection_status = ConnectionStatus::Disconnected;
-                    }
-                }
-            }
-        }
-
-        #[allow(clippy::type_complexity)]
         fn poll(
             &mut self,
-            cx: &mut std::task::Context<'_>,
-            params: &mut impl PollParameters,
-        ) -> Poll<NetworkBehaviourAction<Self::OutEvent, Self::ProtocolsHandler>> {
+            cx: &mut Context<'_>,
+        ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
             if let Some(peer_id) = self.to_dial.pop_front() {
-                return Poll::Ready(NetworkBehaviourAction::Dial {
+                return Poll::Ready(ToSwarm::Dial {
                     opts: DialOpts::peer_id(peer_id)
                         .condition(PeerCondition::Disconnected)
                         .build(),
-
-                    handler: Self::ProtocolsHandler::new(Duration::from_secs(30)),
                 });
             }
             // check the status of each rendezvous node
@@ -395,10 +410,10 @@ pub mod rendezvous {
                 }
             }
 
-            let inner_poll = self.inner.poll(cx, params);
+            let inner_poll = self.inner.poll(cx);
 
             // reset the timer for the specific rendezvous node if we successfully registered
-            if let Poll::Ready(NetworkBehaviourAction::GenerateEvent(
+            if let Poll::Ready(ToSwarm::GenerateEvent(
                 libp2p::rendezvous::client::Event::Registered {
                     ttl,
                     rendezvous_node,
@@ -434,7 +449,7 @@ pub mod rendezvous {
         #[tokio::test]
         async fn given_no_initial_connection_when_constructed_asb_connects_and_registers_with_rendezvous_node(
         ) {
-            let mut rendezvous_node = new_swarm(|_, _| {
+            let mut rendezvous_node = new_swarm(|_| {
                 rendezvous::server::Behaviour::new(rendezvous::server::Config::default())
             });
             let address = rendezvous_node.listen_on_random_memory_address().await;
@@ -445,7 +460,7 @@ pub mod rendezvous {
                 None,
             );
 
-            let mut asb = new_swarm(|_, identity| {
+            let mut asb = new_swarm(|identity| {
                 super::rendezvous::Behaviour::new(identity, vec![rendezvous_point])
             });
             asb.listen_on_random_memory_address().await; // this adds an external address
@@ -473,7 +488,7 @@ pub mod rendezvous {
 
         #[tokio::test]
         async fn asb_automatically_re_registers() {
-            let mut rendezvous_node = new_swarm(|_, _| {
+            let mut rendezvous_node = new_swarm(|_| {
                 rendezvous::server::Behaviour::new(
                     rendezvous::server::Config::default().with_min_ttl(2),
                 )
@@ -486,7 +501,7 @@ pub mod rendezvous {
                 Some(5),
             );
 
-            let mut asb = new_swarm(|_, identity| {
+            let mut asb = new_swarm(|identity| {
                 super::rendezvous::Behaviour::new(identity, vec![rendezvous_point])
             });
             asb.listen_on_random_memory_address().await; // this adds an external address
@@ -525,7 +540,7 @@ pub mod rendezvous {
             let mut registrations = HashMap::new();
             // register with 5 rendezvous nodes
             for _ in 0..5 {
-                let mut rendezvous = new_swarm(|_, _| {
+                let mut rendezvous = new_swarm(|_| {
                     rendezvous::server::Behaviour::new(
                         rendezvous::server::Config::default().with_min_ttl(2),
                     )
@@ -546,7 +561,7 @@ pub mod rendezvous {
                 });
             }
 
-            let mut asb = new_swarm(|_, identity| {
+            let mut asb = new_swarm(|identity| {
                 super::rendezvous::Behaviour::new(identity, rendezvous_nodes)
             });
             asb.listen_on_random_memory_address().await; // this adds an external address

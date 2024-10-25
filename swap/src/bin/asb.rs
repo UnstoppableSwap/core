@@ -16,7 +16,6 @@ use anyhow::{bail, Context, Result};
 use comfy_table::Table;
 use libp2p::core::multiaddr::Protocol;
 use libp2p::core::Multiaddr;
-use libp2p::swarm::AddressScore;
 use libp2p::Swarm;
 use std::convert::TryInto;
 use std::env;
@@ -193,11 +192,7 @@ pub async fn main() -> Result<()> {
             tracing::info!(peer_id = %swarm.local_peer_id(), "Network layer initialized");
 
             for external_address in config.network.external_addresses {
-                let _ = Swarm::add_external_address(
-                    &mut swarm,
-                    external_address,
-                    AddressScore::Infinite,
-                );
+                Swarm::add_external_address(&mut swarm, external_address);
             }
 
             let (event_loop, mut swap_receiver) = EventLoop::new(

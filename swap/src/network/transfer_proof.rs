@@ -1,26 +1,21 @@
-use crate::network::cbor_request_response::CborCodec;
 use crate::{asb, cli, monero};
-use libp2p::core::ProtocolName;
-use libp2p::request_response::{
-    ProtocolSupport, RequestResponse, RequestResponseConfig, RequestResponseEvent,
-    RequestResponseMessage,
-};
-use libp2p::PeerId;
+use libp2p::request_response::{self, ProtocolSupport};
+use libp2p::{PeerId, StreamProtocol};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 const PROTOCOL: &str = "/comit/xmr/btc/transfer_proof/1.0.0";
-type OutEvent = RequestResponseEvent<Request, ()>;
-type Message = RequestResponseMessage<Request, ()>;
+type OutEvent = request_response::Event<Request, ()>;
+type Message = request_response::Message<Request, ()>;
 
-pub type Behaviour = RequestResponse<CborCodec<TransferProofProtocol, Request, ()>>;
+pub type Behaviour = request_response::cbor::Behaviour<Request, ()>;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct TransferProofProtocol;
 
-impl ProtocolName for TransferProofProtocol {
-    fn protocol_name(&self) -> &[u8] {
-        PROTOCOL.as_bytes()
+impl AsRef<str> for TransferProofProtocol {
+    fn as_ref(&self) -> &str {
+        PROTOCOL
     }
 }
 
@@ -32,17 +27,15 @@ pub struct Request {
 
 pub fn alice() -> Behaviour {
     Behaviour::new(
-        CborCodec::default(),
-        vec![(TransferProofProtocol, ProtocolSupport::Outbound)],
-        RequestResponseConfig::default(),
+        vec![(StreamProtocol::new(PROTOCOL), ProtocolSupport::Outbound)],
+        request_response::Config::default(),
     )
 }
 
 pub fn bob() -> Behaviour {
     Behaviour::new(
-        CborCodec::default(),
-        vec![(TransferProofProtocol, ProtocolSupport::Inbound)],
-        RequestResponseConfig::default(),
+        vec![(StreamProtocol::new(PROTOCOL), ProtocolSupport::Inbound)],
+        request_response::Config::default(),
     )
 }
 

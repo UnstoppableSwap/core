@@ -4,13 +4,13 @@ use futures::{future, Future, StreamExt};
 use libp2p::core::muxing::StreamMuxerBox;
 use libp2p::core::transport::upgrade::Version;
 use libp2p::core::transport::MemoryTransport;
-use libp2p::core::upgrade::SelectUpgrade;
-use libp2p::core::{identity, Executor, Multiaddr, PeerId, Transport};
-use libp2p::mplex::MplexConfig;
-use libp2p::noise::{Keypair, NoiseConfig, X25519Spec};
-use libp2p::swarm::{AddressScore, NetworkBehaviour, Swarm, SwarmBuilder, SwarmEvent};
-use libp2p::tcp::TokioTcpConfig;
-use libp2p::yamux::YamuxConfig;
+use libp2p::core::{Multiaddr, PeerId, Transport};
+use libp2p::identity;
+use libp2p::noise;
+use libp2p::swarm::{Executor, NetworkBehaviour, Swarm, SwarmEvent};
+use libp2p::tcp::Config as TokioTcpConfig;
+use libp2p::yamux;
+use libp2p::SwarmBuilder;
 use std::fmt::Debug;
 use std::pin::Pin;
 use std::time::Duration;
@@ -28,32 +28,28 @@ impl Executor for GlobalSpawnTokioExecutor {
 pub fn new_swarm<B, F>(behaviour_fn: F) -> Swarm<B>
 where
     B: NetworkBehaviour,
-    <B as NetworkBehaviour>::OutEvent: Debug,
+    <B as NetworkBehaviour>::ToSwarm: Debug,
     B: NetworkBehaviour,
-    F: FnOnce(PeerId, identity::Keypair) -> B,
+    F: FnOnce(identity::Keypair) -> B,
 {
     let identity = identity::Keypair::generate_ed25519();
     let peer_id = PeerId::from(identity.public());
+    let noise = noise::Config::new(&identity)?;
 
-    let dh_keys = Keypair::<X25519Spec>::new()
-        .into_authentic(&identity)
-        .expect("failed to create dh_keys");
-    let noise = NoiseConfig::xx(dh_keys).into_authenticated();
-
-    let transport = MemoryTransport
+    let transport = MemoryTransport::new()
         .or_transport(TokioTcpConfig::new())
         .upgrade(Version::V1)
         .authenticate(noise)
-        .multiplex(SelectUpgrade::new(
-            YamuxConfig::default(),
-            MplexConfig::new(),
-        ))
+        .multiplex(yamux::Config::default())
         .timeout(Duration::from_secs(5))
         .map(|(peer, muxer), _| (peer, StreamMuxerBox::new(muxer)))
         .boxed();
 
-    SwarmBuilder::new(transport, behaviour_fn(peer_id, identity), peer_id)
-        .executor(Box::new(GlobalSpawnTokioExecutor))
+    SwarmBuilder::with_existing_identity(identity)
+        .with_executor(Box::new(GlobalSpawnTokioExecutor))
+        .with_other_transport(|_| transport)
+        .with_behaviour(|keypair| behaviour_fn(keypair.clone()))
+        .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(Duration::MAX))
         .build()
 }
 
@@ -74,29 +70,6 @@ async fn get_local_tcp_address() -> Multiaddr {
         .unwrap()
 }
 
-pub async fn await_events_or_timeout<A, B, E1, E2>(
-    swarm_1: &mut (impl FusedStream<Item = SwarmEvent<A, E1>> + FusedStream + Unpin),
-    swarm_2: &mut (impl FusedStream<Item = SwarmEvent<B, E2>> + FusedStream + Unpin),
-) -> (SwarmEvent<A, E1>, SwarmEvent<B, E2>)
-where
-    SwarmEvent<A, E1>: Debug,
-    SwarmEvent<B, E2>: Debug,
-{
-    tokio::time::timeout(
-        Duration::from_secs(30),
-        future::join(
-            swarm_1
-                .inspect(|event| tracing::debug!("Swarm1 emitted {:?}", event))
-                .select_next_some(),
-            swarm_2
-                .inspect(|event| tracing::debug!("Swarm2 emitted {:?}", event))
-                .select_next_some(),
-        ),
-    )
-    .await
-    .expect("network behaviours to emit an event within 10 seconds")
-}
-
 /// An extension trait for [`Swarm`] that makes it easier to set up a network of
 /// [`Swarm`]s for tests.
 #[async_trait]
@@ -106,7 +79,7 @@ pub trait SwarmExt {
     async fn block_on_connection<T>(&mut self, other: &mut Swarm<T>)
     where
         T: NetworkBehaviour,
-        <T as NetworkBehaviour>::OutEvent: Debug;
+        <T as NetworkBehaviour>::ToSwarm: Debug;
 
     /// Listens on a random memory address, polling the [`Swarm`] until the
     /// transport is ready to accept connections.
@@ -121,12 +94,12 @@ pub trait SwarmExt {
 impl<B> SwarmExt for Swarm<B>
 where
     B: NetworkBehaviour,
-    <B as NetworkBehaviour>::OutEvent: Debug,
+    <B as NetworkBehaviour>::ToSwarm: Debug,
 {
     async fn block_on_connection<T>(&mut self, other: &mut Swarm<T>)
     where
         T: NetworkBehaviour,
-        <T as NetworkBehaviour>::OutEvent: Debug,
+        <T as NetworkBehaviour>::ToSwarm: Debug,
     {
         let addr_to_dial = other.external_addresses().next().unwrap().addr.clone();
         let local_peer_id = *other.local_peer_id();
@@ -182,7 +155,7 @@ where
 
         // Memory addresses are externally reachable because they all share the same
         // memory-space.
-        self.add_external_address(multiaddr.clone(), AddressScore::Infinite);
+        self.add_external_address(multiaddr.clone());
 
         multiaddr
     }
@@ -200,7 +173,7 @@ where
 async fn block_until_listening_on<B>(swarm: &mut Swarm<B>, multiaddr: &Multiaddr)
 where
     B: NetworkBehaviour,
-    <B as NetworkBehaviour>::OutEvent: Debug,
+    <B as NetworkBehaviour>::ToSwarm: Debug,
 {
     loop {
         match swarm.select_next_some().await {
