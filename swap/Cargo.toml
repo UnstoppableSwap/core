@@ -19,7 +19,9 @@ asynchronous-codec = "0.7.0"
 atty = "0.2"
 backoff = { version = "0.4", features = [ "tokio" ] }
 base64 = "0.22"
-bdk = "0.28"
+bdk = { version = "0.28" }
+bdk_electrum = { version = "0.19", features = [ "use-rustls" ] }
+bdk_wallet = { version = "1.0.0-beta.5", features = [ "rusqlite" ] }
 big-bytes = "1"
 bitcoin = { version = "0.29", features = [ "rand", "serde" ] }
 bmrng = "0.5.2"
@@ -73,10 +75,9 @@ sigma_fun = { version = "0.7", default-features = false, features = [
     "secp256k1",
     "alloc",
 ] }
-sqlx = { version = "0.6.3", features = [
+sqlx = { version = "0.8", features = [
     "sqlite",
     "runtime-tokio-rustls",
-    "offline",
 ] }
 structopt = "0.3"
 strum = { version = "0.26", features = [ "derive" ] }

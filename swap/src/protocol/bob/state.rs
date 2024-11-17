@@ -22,7 +22,7 @@ use std::fmt;
 use std::sync::Arc;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub enum BobState {
     Started {
         #[serde(with = "::bitcoin::util::amount::serde::as_sat")]

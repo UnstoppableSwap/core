@@ -36,6 +36,7 @@ const DUST_AMOUNT: u64 = 546;
 
 const WALLET: &str = "wallet";
 const WALLET_OLD: &str = "wallet-old";
+const WALLET_NEW: &str = "wallet-new";
 
 pub struct Wallet<D = Tree, C = Client> {
     client: Arc<Mutex<C>>,
@@ -43,6 +44,11 @@ pub struct Wallet<D = Tree, C = Client> {
     finality_confirmations: u32,
     network: Network,
     target_block: u16,
+}
+
+pub struct NewWallet {
+    wallet: bdk_wallet::Wallet,
+    client: bdk_electrum::BdkElectrumClient<bdk_electrum::electrum_client::Client>
 }
 
 impl Wallet {
