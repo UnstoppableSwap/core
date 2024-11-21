@@ -1,4 +1,4 @@
-import { Box, Chip, makeStyles, Tooltip, Typography } from "@material-ui/core";
+import { Box, Chip, Divider, makeStyles, Tooltip, Typography } from "@material-ui/core";
 import { VerifiedUser } from "@material-ui/icons";
 import { ExtendedProviderStatus } from "models/apiModel";
 import TruncatedText from "renderer/components/other/TruncatedText";
@@ -10,6 +10,7 @@ import { satsToBtc, secondsToDays } from "utils/conversionUtils";
 import { isProviderOutdated } from 'utils/multiAddrUtils';
 import WarningIcon from '@material-ui/icons/Warning';
 import { useAppSelector } from "store/hooks";
+import { BobStateName } from "models/tauriModelExt";
 
 const useStyles = makeStyles((theme) => ({
   content: {
@@ -46,6 +47,34 @@ function ProviderMarkupChip({ provider }: { provider: ExtendedProviderStatus }) 
 
 }
 
+/**
+ * A component that displays our local reputation of the provider.
+ */
+function ProviderReputation({ provider }: { provider: ExtendedProviderStatus }) {
+  const swapsByProvider = useAppSelector(s => Object.values(s.rpc.state.swapInfos).filter(s => s.seller.peer_id === provider.peerId));
+
+  const successfullSwaps = swapsByProvider.filter(s => s.state_name === BobStateName.XmrRedeemed).length;
+  const refundedSwaps = swapsByProvider.filter(s => s.state_name === BobStateName.BtcRefunded).length;
+  const failedSwaps = swapsByProvider.filter(s => s.state_name === BobStateName.BtcPunished).length;
+
+
+  if (successfullSwaps + refundedSwaps + failedSwaps === 0) {
+    return null;
+  }
+
+  return <Tooltip title="How many swaps you've made with this provider, how many were successful, and how many were refunded">
+    <Chip label={
+      <Box display="flex" style={{ gap: "0.5rem" }}>
+        <Box color="success.main">{successfullSwaps} success</Box>
+        <Divider orientation="vertical" flexItem />
+        <Box color="warning.main">{refundedSwaps} refund</Box>
+        <Divider orientation="vertical" flexItem />
+        <Box color="error.main">{failedSwaps} fail</Box>
+      </Box>
+    } />
+  </Tooltip>
+}
+
 export default function ProviderInfo({
   provider,
 }: {
@@ -74,6 +103,7 @@ export default function ProviderInfo({
         Maximum swap amount: <SatsAmount amount={provider.maxSwapAmount} />
       </Typography>
       <Box className={classes.chipsOuter}>
+        <ProviderReputation provider={provider} />
         {provider.testnet && <Chip label="Testnet" />}
         {provider.uptime && (
           <Tooltip title="A high uptime (>90%) indicates reliability. Providers with very low uptime may be unreliable and cause swaps to take longer to complete or fail entirely.">
