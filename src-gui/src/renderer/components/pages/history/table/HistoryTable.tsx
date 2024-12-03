@@ -1,6 +1,5 @@
 import {
   Box,
-  makeStyles,
   Paper,
   Table,
   TableBody,
@@ -8,7 +7,8 @@ import {
   TableContainer,
   TableHead,
   TableRow,
-} from "@material-ui/core";
+} from "@mui/material";
+import makeStyles from '@mui/styles/makeStyles';
 import { useSwapInfosSortedByDate } from "../../../../../store/hooks";
 import HistoryRow from "./HistoryRow";
 

@@ -1,4 +1,5 @@
-import { Box, makeStyles } from "@material-ui/core";
+import { Box } from "@mui/material";
+import makeStyles from '@mui/styles/makeStyles';
 import ContactInfoBox from "./ContactInfoBox";
 import DonateInfoBox from "./DonateInfoBox";
 import FeedbackInfoBox from "./FeedbackInfoBox";

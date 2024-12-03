@@ -1,4 +1,5 @@
-import { DialogTitle, makeStyles, Typography } from "@material-ui/core";
+import { DialogTitle, Typography } from "@mui/material";
+import makeStyles from '@mui/styles/makeStyles';
 import { ReactNode } from "react";
 
 const useStyles = makeStyles({
@@ -16,8 +17,8 @@ export default function DialogHeader({ title }: DialogTitleProps) {
   const classes = useStyles();
 
   return (
-    <DialogTitle disableTypography className={classes.root}>
+    (<DialogTitle className={classes.root}>
       <Typography variant="h6">{title}</Typography>
-    </DialogTitle>
+    </DialogTitle>)
   );
 }

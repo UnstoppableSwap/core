@@ -1,4 +1,5 @@
-import { Box, Drawer, makeStyles } from "@material-ui/core";
+import { Box, Drawer } from "@mui/material";
+import makeStyles from '@mui/styles/makeStyles';
 import NavigationFooter from "./NavigationFooter";
 import NavigationHeader from "./NavigationHeader";
 

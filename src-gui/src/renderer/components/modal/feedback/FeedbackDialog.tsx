@@ -13,7 +13,7 @@ import {
   Paper,
   Select,
   TextField,
-} from "@material-ui/core";
+} from "@mui/material";
 import { useSnackbar } from "notistack";
 import { useState } from "react";
 import TruncatedText from "renderer/components/other/TruncatedText";

@@ -1,6 +1,7 @@
-import { Box, makeStyles } from "@material-ui/core";
-import GitHubIcon from "@material-ui/icons/GitHub";
-import RedditIcon from "@material-ui/icons/Reddit";
+import { Box } from "@mui/material";
+import makeStyles from '@mui/styles/makeStyles';
+import GitHubIcon from "@mui/icons-material/GitHub";
+import RedditIcon from "@mui/icons-material/Reddit";
 import DaemonStatusAlert from "../alert/DaemonStatusAlert";
 import FundsLeftInWalletAlert from "../alert/FundsLeftInWalletAlert";
 import MoneroWalletRpcUpdatingAlert from "../alert/MoneroWalletRpcUpdatingAlert";

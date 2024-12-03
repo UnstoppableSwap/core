@@ -1,5 +1,6 @@
-import { Box, Chip, makeStyles, Paper, Tooltip, Typography } from "@material-ui/core";
-import { VerifiedUser } from "@material-ui/icons";
+import { Box, Chip, Paper, Tooltip, Typography } from "@mui/material";
+import makeStyles from '@mui/styles/makeStyles';
+import { VerifiedUser } from "@mui/icons-material";
 import { ExtendedMakerStatus } from "models/apiModel";
 import TruncatedText from "renderer/components/other/TruncatedText";
 import {
@@ -8,7 +9,7 @@ import {
 } from "renderer/components/other/Units";
 import { getMarkup, satsToBtc, secondsToDays } from "utils/conversionUtils";
 import { isMakerOutdated } from 'utils/multiAddrUtils';
-import WarningIcon from '@material-ui/icons/Warning';
+import WarningIcon from '@mui/icons-material/Warning';
 import { useAppSelector } from "store/hooks";
 import IdentIcon from "renderer/components/icons/IdentIcon";
 

@@ -1,4 +1,4 @@
-import { Button, Typography } from "@material-ui/core";
+import { Button, Typography } from "@mui/material";
 import { useState } from "react";
 import FeedbackDialog from "../../modal/feedback/FeedbackDialog";
 import InfoBox from "../../modal/swap/InfoBox";

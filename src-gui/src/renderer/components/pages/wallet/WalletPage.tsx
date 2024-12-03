@@ -1,5 +1,6 @@
-import { Box, makeStyles, Typography } from "@material-ui/core";
-import { Alert } from "@material-ui/lab";
+import { Box, Typography } from "@mui/material";
+import makeStyles from '@mui/styles/makeStyles';
+import { Alert } from '@mui/material';
 import WithdrawWidget from "./WithdrawWidget";
 
 const useStyles = makeStyles((theme) => ({

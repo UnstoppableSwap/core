@@ -1,9 +1,10 @@
-import { Box, Button, IconButton, Tooltip, makeStyles } from "@material-ui/core";
-import { FileCopyOutlined, CropFree as CropFreeIcon } from "@material-ui/icons";
+import { Box, Button, IconButton, Tooltip } from "@mui/material";
+import makeStyles from '@mui/styles/makeStyles';
+import { FileCopyOutlined, CropFree as CropFreeIcon } from "@mui/icons-material";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { useState } from "react";
 import MonospaceTextBox from "./MonospaceTextBox";
-import { Modal } from "@material-ui/core";
+import { Modal } from "@mui/material";
 import QRCode from "react-qr-code";
 
 type ModalProps = {

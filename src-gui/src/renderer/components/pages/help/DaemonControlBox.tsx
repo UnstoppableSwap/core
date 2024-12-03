@@ -1,13 +1,14 @@
-import { Box, makeStyles } from "@material-ui/core";
-import FolderOpenIcon from "@material-ui/icons/FolderOpen";
-import PlayArrowIcon from "@material-ui/icons/PlayArrow";
+import { Box } from "@mui/material";
+import makeStyles from '@mui/styles/makeStyles';
+import FolderOpenIcon from "@mui/icons-material/FolderOpen";
+import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import PromiseInvokeButton from "renderer/components/PromiseInvokeButton";
 import { useAppSelector } from "store/hooks";
 import InfoBox from "../../modal/swap/InfoBox";
 import CliLogsBox from "../../other/RenderedCliLog";
 import { initializeContext } from "renderer/rpc";
 import { relaunch } from "@tauri-apps/plugin-process";
-import RotateLeftIcon from "@material-ui/icons/RotateLeft";
+import RotateLeftIcon from "@mui/icons-material/RotateLeft";
 
 const useStyles = makeStyles((theme) => ({
   actionsOuter: {

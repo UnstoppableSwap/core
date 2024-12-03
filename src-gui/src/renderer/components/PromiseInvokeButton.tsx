@@ -4,8 +4,8 @@ import {
   IconButton,
   IconButtonProps,
   Tooltip,
-} from "@material-ui/core";
-import CircularProgress from "@material-ui/core/CircularProgress";
+} from "@mui/material";
+import CircularProgress from "@mui/material/CircularProgress";
 import { useSnackbar } from "notistack";
 import { ReactNode, useState } from "react";
 import { useIsContextAvailable } from "store/hooks";
@@ -77,14 +77,14 @@ export default function PromiseInvokeButton<T>({
       : tooltipTitle) ?? "";
 
   return (
-    <Tooltip title={actualTooltipTitle}>
+    (<Tooltip title={actualTooltipTitle}>
       <span>
         {isIconButton ? (
           <IconButton
             onClick={handleClick}
             disabled={isDisabled}
             {...(rest as IconButtonProps)}
-          >
+            size="large">
             {actualEndIcon}
           </IconButton>
         ) : (
@@ -96,6 +96,6 @@ export default function PromiseInvokeButton<T>({
           />
         )}
       </span>
-    </Tooltip>
+    </Tooltip>)
   );
 }

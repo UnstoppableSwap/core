@@ -1,8 +1,8 @@
-import { Box, List } from "@material-ui/core";
-import AccountBalanceWalletIcon from "@material-ui/icons/AccountBalanceWallet";
-import HelpOutlineIcon from "@material-ui/icons/HelpOutline";
-import HistoryOutlinedIcon from "@material-ui/icons/HistoryOutlined";
-import SwapHorizOutlinedIcon from "@material-ui/icons/SwapHorizOutlined";
+import { Box, List } from "@mui/material";
+import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
+import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
+import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
+import SwapHorizOutlinedIcon from "@mui/icons-material/SwapHorizOutlined";
 import RouteListItemIconButton from "./RouteListItemIconButton";
 import UnfinishedSwapsBadge from "./UnfinishedSwapsCountBadge";
 

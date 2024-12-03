@@ -1,12 +1,6 @@
-import {
-  Box,
-  makeStyles,
-  Paper,
-  Tab,
-  Tabs,
-  Typography,
-} from "@material-ui/core";
-import PlayArrowIcon from "@material-ui/icons/PlayArrow";
+import { Box, Paper, Tab, Tabs, Typography } from "@mui/material";
+import makeStyles from '@mui/styles/makeStyles';
+import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import { useState } from "react";
 import RemainingFundsWillBeUsedAlert from "renderer/components/alert/RemainingFundsWillBeUsedAlert";
 import BitcoinAddressTextField from "renderer/components/inputs/BitcoinAddressTextField";
@@ -62,7 +56,7 @@ export default function InitPage() {
           fullWidth
         />
 
-        <Paper variant="outlined" style={{}}>
+        <Paper variant="elevation">
           <Tabs
             value={useExternalRefundAddress ? 1 : 0}
             indicatorColor="primary"

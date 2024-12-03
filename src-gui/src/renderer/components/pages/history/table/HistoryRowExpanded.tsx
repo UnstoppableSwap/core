@@ -1,14 +1,6 @@
-import {
-  Box,
-  Link,
-  makeStyles,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableRow,
-} from "@material-ui/core";
-import { OpenInNew } from "@material-ui/icons";
+import { Box, Link, Table, TableBody, TableCell, TableContainer, TableRow } from "@mui/material";
+import makeStyles from '@mui/styles/makeStyles';
+import { OpenInNew } from "@mui/icons-material";
 import { GetSwapInfoResponse } from "models/tauriModel";
 import ActionableMonospaceTextBox from "renderer/components/other/ActionableMonospaceTextBox";
 import MonospaceTextBox from "renderer/components/other/MonospaceTextBox";
@@ -48,7 +40,7 @@ export default function HistoryRowExpanded({
   const classes = useStyles();
 
   return (
-    <Box className={classes.outer}>
+    (<Box className={classes.outer}>
       <TableContainer>
         <Table>
           <TableBody>
@@ -112,7 +104,7 @@ export default function HistoryRowExpanded({
                 <Link
                   href={getBitcoinTxExplorerUrl(swap.tx_lock_id, isTestnet())}
                   target="_blank"
-                >
+                  underline="hover">
                   <MonospaceTextBox>
                     {swap.tx_lock_id}
                   </MonospaceTextBox>
@@ -129,6 +121,6 @@ export default function HistoryRowExpanded({
           size="small"
         />
       </Box>
-    </Box>
+    </Box>)
   );
 }

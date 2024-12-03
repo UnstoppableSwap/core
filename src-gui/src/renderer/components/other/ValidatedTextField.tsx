@@ -1,4 +1,4 @@
-import { TextFieldProps, TextField } from "@material-ui/core";
+import { TextFieldProps, TextField } from "@mui/material";
 import { useState, useEffect, useCallback } from "react";
 
 interface ValidatedTextFieldProps extends Omit<TextFieldProps, "onChange" | "value"> {

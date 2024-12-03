@@ -1,4 +1,4 @@
-import { useTheme, Tooltip, Typography, Box, LinearProgress, Paper } from "@material-ui/core";
+import { useTheme, Tooltip, Typography, Box, LinearProgress, Paper } from "@mui/material";
 import { ExpiredTimelocks } from "models/tauriModel";
 import { GetSwapInfoResponseExt, getAbsoluteBlock } from "models/tauriModelExt";
 import HumanizedBitcoinBlockDuration from "renderer/components/other/HumanizedBitcoinBlockDuration";
@@ -28,16 +28,23 @@ function TimelineSegment({
     const theme = useTheme();
 
     return (
-        <Tooltip title={<Typography variant="caption">{segment.title}</Typography>}>
-            <Box sx={{
+        (<Tooltip title={<Typography variant="caption">{segment.title}</Typography>}>
+            <Box sx={[{
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
                 bgcolor: segment.bgcolor,
-                width: `${durationOfSegment ? ((durationOfSegment / totalBlocks) * 85) : 15}%`,
-                position: 'relative',
-            }} style={{
+                position: 'relative'
+            }, durationOfSegment ? {
+                width: {
+                    width: ((durationOfSegment / totalBlocks) * 85)
+                }
+            } : {
+                width: {
+                    width: 15
+                }
+            }]} style={{
                 opacity: isActive ? 1 : 0.3
             }}>
                 {isActive && (
@@ -88,7 +95,7 @@ function TimelineSegment({
                     </Typography>
                 )}
             </Box>
-        </Tooltip>
+        </Tooltip>)
     );
 }
 

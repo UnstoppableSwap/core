@@ -6,8 +6,8 @@ import {
   DialogContent,
   DialogContentText,
   Link,
-} from "@material-ui/core";
-import { ButtonProps } from "@material-ui/core/Button/Button";
+} from "@mui/material";
+import { ButtonProps } from "@mui/material/Button/Button";
 import { BobStateName, GetSwapInfoResponseExt } from "models/tauriModelExt";
 import TruncatedText from "renderer/components/other/TruncatedText";
 import PromiseInvokeButton from "renderer/components/PromiseInvokeButton";
@@ -37,7 +37,7 @@ function MoneroRecoveryKeysDialog({
   }
 
   return (
-    <Dialog open onClose={onClose} maxWidth="sm" fullWidth>
+    (<Dialog open onClose={onClose} maxWidth="sm" fullWidth>
       <DialogHeader
         title=<>
           Recovery Keys for swap <TruncatedText>{swap_id}</TruncatedText>
@@ -62,7 +62,7 @@ function MoneroRecoveryKeysDialog({
                 href="https://www.getmonero.org/resources/user-guides/restore_from_keys.html"
                 target="_blank"
                 rel="noreferrer"
-              >
+                underline="hover">
                 this guide
               </Link>{" "}
               for a detailed description on how to import the keys and spend the
@@ -98,7 +98,7 @@ function MoneroRecoveryKeysDialog({
           Done
         </Button>
       </DialogActions>
-    </Dialog>
+    </Dialog>)
   );
 }
 

@@ -7,7 +7,6 @@ import {
   Typography,
   IconButton,
   Box,
-  makeStyles,
   Tooltip,
   Select,
   MenuItem,
@@ -20,7 +19,8 @@ import {
   DialogTitle,
   useTheme,
   Switch,
-} from "@material-ui/core";
+} from "@mui/material";
+import makeStyles from '@mui/styles/makeStyles';
 import InfoBox from "renderer/components/modal/swap/InfoBox";
 import {
   removeNode,
@@ -38,10 +38,10 @@ import {
 } from "store/features/settingsSlice";
 import { useAppDispatch, useAppSelector, useNodes, useSettings } from "store/hooks";
 import ValidatedTextField from "renderer/components/other/ValidatedTextField";
-import HelpIcon from '@material-ui/icons/HelpOutline';
+import HelpIcon from '@mui/icons-material/HelpOutline';
 import { ReactNode, useState } from "react";
 import { Theme } from "renderer/components/theme";
-import { Add, ArrowUpward, Delete, Edit, HourglassEmpty } from "@material-ui/icons";
+import { Add, ArrowUpward, Delete, Edit, HourglassEmpty } from "@mui/icons-material";
 import { getNetwork } from "store/config";
 import { currencySymbol } from "utils/formatUtils";
 
@@ -207,14 +207,12 @@ function ElectrumRpcUrlSetting() {
   const isValid = (url: string) => isValidUrl(url, ["ssl", "tcp"]);
 
   return (
-    <TableRow>
+    (<TableRow>
       <TableCell>
         <SettingLabel label="Custom Electrum RPC URL" tooltip="This is the URL of the Electrum server that the GUI will connect to. It is used to sync Bitcoin transactions. If you leave this field empty, the GUI will choose from a list of known servers at random." />
       </TableCell>
       <TableCell>
-        <IconButton
-          onClick={() => setTableVisible(true)}
-        >
+        <IconButton onClick={() => setTableVisible(true)} size="large">
           {<Edit />}
         </IconButton>
         {tableVisible ? <NodeTableModal
@@ -226,7 +224,7 @@ function ElectrumRpcUrlSetting() {
           placeholder={PLACEHOLDER_ELECTRUM_RPC_URL}
         /> : <></>}
       </TableCell>
-    </TableRow>
+    </TableRow>)
   );
 }
 
@@ -256,14 +254,12 @@ function MoneroNodeUrlSetting() {
   const isValid = (url: string) => isValidUrl(url, ["http"]);
 
   return (
-    <TableRow>
+    (<TableRow>
       <TableCell>
         <SettingLabel label="Custom Monero Node URL" tooltip="This is the URL of the Monero node that the GUI will connect to. Ensure the node is listening for RPC connections over HTTP. If you leave this field empty, the GUI will choose from a list of known nodes at random." />
       </TableCell>
       <TableCell>
-        <IconButton
-          onClick={() => setTableVisible(!tableVisible)}
-        >
+        <IconButton onClick={() => setTableVisible(!tableVisible)} size="large">
           <Edit />
         </IconButton>
         {tableVisible ? <NodeTableModal
@@ -275,7 +271,7 @@ function MoneroNodeUrlSetting() {
           placeholder={PLACEHOLDER_MONERO_NODE_URL}
         /> : <></>}
       </TableCell>
-    </TableRow>
+    </TableRow>)
   );
 }
 
@@ -416,16 +412,16 @@ function NodeTable({
       return <></>;
 
     return (
-      <Tooltip title={"Move this node to the top of the list"}>
-        <IconButton onClick={() => onMoveUpNode(node)}>
+      (<Tooltip title={"Move this node to the top of the list"}>
+        <IconButton onClick={() => onMoveUpNode(node)} size="large">
           <ArrowUpward />
         </IconButton>
-      </Tooltip>
-    )
+      </Tooltip>)
+    );
   }
 
   return (
-    <TableContainer component={Paper} style={{ marginTop: '1rem' }} elevation={0}>
+    (<TableContainer component={Paper} style={{ marginTop: '1rem' }} elevation={0}>
       <Table size="small">
         {/* Table header row */}
         <TableHead>
@@ -452,10 +448,7 @@ function NodeTable({
                 <Box style={{ display: "flex" }}>
                   <Tooltip
                     title={"Remove this node from your list"}
-                    children={<IconButton
-                      onClick={() => onRemoveNode(node)}
-                      children={<Delete />}
-                    />}
+                    children={<IconButton onClick={() => onRemoveNode(node)} children={<Delete />} size="large" />}
                   />
                   {moveUpButton(node)}
                 </Box>
@@ -479,7 +472,10 @@ function NodeTable({
             <TableCell></TableCell>
             <TableCell>
               <Tooltip title={"Add this node to your list"}>
-                <IconButton onClick={onAddNewNode} disabled={availableNodes.includes(newNode) || newNode.length === 0}>
+                <IconButton
+                  onClick={onAddNewNode}
+                  disabled={availableNodes.includes(newNode) || newNode.length === 0}
+                  size="large">
                   <Add />
                 </IconButton>
               </Tooltip>
@@ -487,6 +483,6 @@ function NodeTable({
           </TableRow>
         </TableBody>
       </Table>
-    </TableContainer>
-  )
+    </TableContainer>)
+  );
 }

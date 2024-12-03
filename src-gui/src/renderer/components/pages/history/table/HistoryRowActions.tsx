@@ -1,9 +1,9 @@
-import { Tooltip } from "@material-ui/core";
-import { ButtonProps } from "@material-ui/core/Button/Button";
-import { green, red } from "@material-ui/core/colors";
-import DoneIcon from "@material-ui/icons/Done";
-import ErrorIcon from "@material-ui/icons/Error";
-import PlayArrowIcon from "@material-ui/icons/PlayArrow";
+import { Tooltip } from "@mui/material";
+import { ButtonProps } from "@mui/material/Button/Button";
+import { green, red } from "@mui/material/colors";
+import DoneIcon from "@mui/icons-material/Done";
+import ErrorIcon from "@mui/icons-material/Error";
+import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import { GetSwapInfoResponse } from "models/tauriModel";
 import {
   BobStateName,

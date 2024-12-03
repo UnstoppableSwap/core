@@ -1,5 +1,6 @@
-import { Box, Button, LinearProgress, makeStyles } from "@material-ui/core";
-import { Alert } from "@material-ui/lab";
+import { Box, Button, LinearProgress } from "@mui/material";
+import makeStyles from '@mui/styles/makeStyles';
+import { Alert } from '@mui/material';
 import { useNavigate } from "react-router-dom";
 import { useAppSelector } from "store/hooks";
 import { exhaustiveGuard } from "utils/typescriptUtils";

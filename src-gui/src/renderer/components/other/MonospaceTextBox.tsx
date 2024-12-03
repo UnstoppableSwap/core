@@ -1,4 +1,6 @@
-import { Box, Typography, makeStyles } from "@material-ui/core";
+import { Box, Typography } from "@mui/material";
+
+import makeStyles from '@mui/styles/makeStyles';
 
 type Props = {
   children: React.ReactNode;

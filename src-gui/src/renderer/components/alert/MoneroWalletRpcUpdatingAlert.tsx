@@ -1,5 +1,5 @@
-import { Box, LinearProgress } from "@material-ui/core";
-import { Alert } from "@material-ui/lab";
+import { Box, LinearProgress } from "@mui/material";
+import { Alert } from '@mui/material';
 import { useAppSelector } from "store/hooks";
 
 export default function MoneroWalletRpcUpdatingAlert() {

@@ -1,7 +1,6 @@
 import {
   Box,
   Typography,
-  makeStyles,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -9,7 +8,8 @@ import {
   Button,
   Link,
   DialogContentText,
-} from "@material-ui/core";
+} from "@mui/material";
+import makeStyles from '@mui/styles/makeStyles';
 import InfoBox from "renderer/components/modal/swap/InfoBox";
 import { useState } from "react";
 import { getWalletDescriptor } from "renderer/rpc";
@@ -82,7 +82,7 @@ function WalletDescriptorModal({
   const stringifiedDescriptor = JSON.stringify(parsedDescriptor, null, 4);
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+    (<Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
       <DialogTitle>Bitcoin Wallet Descriptor</DialogTitle>
       <DialogContent>
         <DialogContentText>
@@ -95,7 +95,10 @@ function WalletDescriptorModal({
             </li>
             <li>
               For more information on what to do with the descriptor, see our 
-              {" "}<Link href="https://github.com/UnstoppableSwap/core/blob/master/dev-docs/asb/README.md#exporting-the-bitcoin-wallet-descriptor" target="_blank">documentation</Link>
+              {" "}<Link
+              href="https://github.com/UnstoppableSwap/core/blob/master/dev-docs/asb/README.md#exporting-the-bitcoin-wallet-descriptor"
+              target="_blank"
+              underline="hover">documentation</Link>
             </li>
           </ul>
         </DialogContentText>
@@ -110,6 +113,6 @@ function WalletDescriptorModal({
           Done
         </Button>
       </DialogActions>
-    </Dialog>
+    </Dialog>)
   );
-};
+}

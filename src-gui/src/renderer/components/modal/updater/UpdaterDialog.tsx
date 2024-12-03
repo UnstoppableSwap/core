@@ -8,12 +8,12 @@ import {
   Button,
   LinearProgress,
   Typography,
-  makeStyles,
   LinearProgressProps,
   Box,
   Link,
-} from '@material-ui/core';
-import SystemUpdateIcon from '@material-ui/icons/SystemUpdate';
+} from '@mui/material';
+import makeStyles from '@mui/styles/makeStyles';
+import SystemUpdateIcon from '@mui/icons-material/SystemUpdate';
 import { check, Update, DownloadEvent } from '@tauri-apps/plugin-updater';
 import { useSnackbar } from 'notistack';
 import { relaunch } from '@tauri-apps/plugin-process';
@@ -110,18 +110,18 @@ export default function UpdaterDialog() {
     : 0;
 
   return (
-    <Dialog
-      fullWidth
-      maxWidth="sm"
-      open={availableUpdate.available}
-      onClose={hideNotification}
-    >
+    (<Dialog
+        fullWidth
+        maxWidth="sm"
+        open={availableUpdate.available}
+        onClose={hideNotification}
+      >
       <DialogTitle>Update Available</DialogTitle>
       <DialogContent>
         <DialogContentText>
           A new version (v{availableUpdate.version}) is available. Your current version is {availableUpdate.currentVersion}.
           The update will be verified using PGP signature verification to ensure authenticity. Alternatively, you can download the
-          update from <Link href={GITHUB_RELEASES_URL} target="_blank">GitHub</Link> or visit the <Link href={HOMEPAGE_URL} target="_blank">download page</Link>.
+          update from <Link href={GITHUB_RELEASES_URL} target="_blank" underline="hover">GitHub</Link> or visit the <Link href={HOMEPAGE_URL} target="_blank" underline="hover">download page</Link>.
           {availableUpdate.body && (
             <>
               <Typography variant="h6" className={classes.releaseNotes}>
@@ -147,12 +147,7 @@ export default function UpdaterDialog() {
         )}
       </DialogContent>
       <DialogActions>
-        <Button
-          variant="text"
-          color="default"
-          onClick={hideNotification}
-          disabled={isDownloading}
-        >
+        <Button variant="text" onClick={hideNotification} disabled={isDownloading}>
           Remind me later
         </Button>
         <Button
@@ -165,6 +160,6 @@ export default function UpdaterDialog() {
           {isDownloading ? 'DOWNLOADING...' : 'INSTALL UPDATE'}
         </Button>
       </DialogActions>
-    </Dialog>
+    </Dialog>)
   );
 }

@@ -1,4 +1,5 @@
-import { Box, Button, makeStyles, Typography } from "@material-ui/core";
+import { Box, Button, Typography } from "@mui/material";
+import makeStyles from '@mui/styles/makeStyles';
 import { open } from "@tauri-apps/plugin-shell";
 import InfoBox from "../../modal/swap/InfoBox";
 

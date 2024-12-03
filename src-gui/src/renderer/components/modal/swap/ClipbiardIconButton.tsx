@@ -1,5 +1,5 @@
-import { Button } from "@material-ui/core";
-import { ButtonProps } from "@material-ui/core/Button/Button";
+import { Button } from "@mui/material";
+import { ButtonProps } from "@mui/material/Button/Button";
 
 export default function ClipboardIconButton({
   text,

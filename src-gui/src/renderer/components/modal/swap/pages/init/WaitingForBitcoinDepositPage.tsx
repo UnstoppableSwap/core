@@ -1,4 +1,5 @@
-import { Box, makeStyles, Typography } from "@material-ui/core";
+import { Box, Typography } from "@mui/material";
+import makeStyles from '@mui/styles/makeStyles';
 import { TauriSwapProgressEventContent } from "models/tauriModelExt";
 import { useAppSelector } from "store/hooks";
 import BitcoinIcon from "../../../../icons/BitcoinIcon";

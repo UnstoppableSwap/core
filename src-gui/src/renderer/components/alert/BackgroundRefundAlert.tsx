@@ -1,7 +1,7 @@
 import { BackgroundRefundState } from "models/tauriModel";
 import { useAppSelector } from "store/hooks";
 import { LoadingSpinnerAlert } from "./LoadingSpinnerAlert";
-import { AlertTitle } from "@material-ui/lab";
+import { AlertTitle } from '@mui/material';
 import TruncatedText from "../other/TruncatedText";
 import { useSnackbar } from "notistack";
 import { useEffect } from "react";

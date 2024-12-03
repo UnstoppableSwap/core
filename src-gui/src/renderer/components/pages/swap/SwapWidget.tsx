@@ -1,16 +1,9 @@
-import {
-  Box,
-  Fab,
-  LinearProgress,
-  makeStyles,
-  Paper,
-  TextField,
-  Typography,
-} from "@material-ui/core";
-import InputAdornment from "@material-ui/core/InputAdornment";
-import ArrowDownwardIcon from "@material-ui/icons/ArrowDownward";
-import SwapHorizIcon from "@material-ui/icons/SwapHoriz";
-import { Alert } from "@material-ui/lab";
+import { Box, Fab, LinearProgress, Paper, TextField, Typography } from "@mui/material";
+import makeStyles from '@mui/styles/makeStyles';
+import InputAdornment from "@mui/material/InputAdornment";
+import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
+import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
+import { Alert } from '@mui/material';
 import { ExtendedMakerStatus } from "models/apiModel";
 import { ChangeEvent, useEffect, useState } from "react";
 import { useAppSelector } from "store/hooks";
@@ -133,7 +126,7 @@ function HasMakerSwapWidget({
     // 'elevation' prop can't be passed down (type def issue)
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
-    <Box className={classes.inner} component={Paper} elevation={5}>
+    (<Box className={classes.inner} component={Paper} elevation={5}>
       <Title />
       <TextField
         label="For this many BTC"
@@ -169,7 +162,7 @@ function HasMakerSwapWidget({
         open={showDialog || forceShowDialog}
         onClose={() => setShowDialog(false)}
       />
-    </Box>
+    </Box>)
   );
 }
 
@@ -237,10 +230,10 @@ function MakerLoadingSwapWidget() {
     // 'elevation' prop can't be passed down (type def issue)
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
-    <Box className={classes.inner} component={Paper} elevation={15}>
+    (<Box className={classes.inner} component={Paper} elevation={15}>
       <Title />
       <LinearProgress />
-    </Box>
+    </Box>)
   );
 }
 

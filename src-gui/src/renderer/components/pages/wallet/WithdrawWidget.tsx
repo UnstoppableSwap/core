@@ -1,5 +1,6 @@
-import { Box, Button, makeStyles, Typography } from "@material-ui/core";
-import SendIcon from "@material-ui/icons/Send";
+import { Box, Button, Typography } from "@mui/material";
+import makeStyles from '@mui/styles/makeStyles';
+import SendIcon from "@mui/icons-material/Send";
 import { useState } from "react";
 import { SatsAmount } from "renderer/components/other/Units";
 import { useAppSelector } from "store/hooks";

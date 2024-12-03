@@ -7,10 +7,10 @@ import {
   DialogContent,
   DialogContentText,
   DialogTitle,
-  makeStyles,
   TextField,
   Theme,
-} from "@material-ui/core";
+} from "@mui/material";
+import makeStyles from '@mui/styles/makeStyles';
 import { ListSellersResponse } from "models/tauriModel";
 import { useSnackbar } from "notistack";
 import { ChangeEvent, useState } from "react";
@@ -79,7 +79,7 @@ export default function ListSellersDialog({
   }
 
   return (
-    <Dialog onClose={onClose} open={open}>
+    (<Dialog onClose={onClose} open={open}>
       <DialogTitle>Discover makers</DialogTitle>
       <DialogContent dividers>
         <DialogContentText>
@@ -89,6 +89,7 @@ export default function ListSellersDialog({
           discover makers and then connect and swap with them.
         </DialogContentText>
         <TextField
+          variant="standard"
           autoFocus
           margin="dense"
           label="Rendezvous point"
@@ -99,8 +100,7 @@ export default function ListSellersDialog({
           value={rendezvousAddress}
           onChange={handleMultiAddrChange}
           placeholder="/dns4/discover.unstoppableswap.net/tcp/8888/p2p/12D3KooWA6cnqJpVnreBVnoro8midDL9Lpzmg8oJPoAGi7YYaamE"
-          error={!!getMultiAddressError()}
-        />
+          error={!!getMultiAddressError()} />
         <Box className={classes.chipOuter}>
           {PRESET_RENDEZVOUS_POINTS.map((rAddress) => (
             <Chip
@@ -127,6 +127,6 @@ export default function ListSellersDialog({
           Connect
         </PromiseInvokeButton>
       </DialogActions>
-    </Dialog>
+    </Dialog>)
   );
 }

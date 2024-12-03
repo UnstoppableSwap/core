@@ -1,4 +1,4 @@
-import { Step, StepLabel, Stepper, Typography } from "@material-ui/core";
+import { Step, StepLabel, Stepper, Typography } from "@mui/material";
 import { SwapState } from "models/storeModel";
 import { useAppSelector } from "store/hooks";
 import logger from "utils/logger";

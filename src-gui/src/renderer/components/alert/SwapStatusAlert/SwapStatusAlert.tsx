@@ -1,5 +1,6 @@
-import { Box, makeStyles } from "@material-ui/core";
-import { Alert, AlertTitle } from "@material-ui/lab/";
+import { Box } from "@mui/material";
+import makeStyles from '@mui/styles/makeStyles';
+import { Alert, AlertTitle } from "@mui/lab/";
 import {
   BobStateName,
   GetSwapInfoResponseExt,

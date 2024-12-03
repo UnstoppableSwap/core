@@ -1,4 +1,5 @@
-import { Box, DialogContent, makeStyles } from "@material-ui/core";
+import { Box, DialogContent } from "@mui/material";
+import makeStyles from '@mui/styles/makeStyles';
 import { ReactNode } from "react";
 import WithdrawStepper from "./WithdrawStepper";
 

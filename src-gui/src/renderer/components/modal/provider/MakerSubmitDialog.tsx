@@ -6,7 +6,7 @@ import {
   DialogContentText,
   DialogTitle,
   TextField,
-} from "@material-ui/core";
+} from "@mui/material";
 import { Multiaddr } from "multiaddr";
 import { ChangeEvent, useState } from "react";
 
@@ -64,7 +64,7 @@ export default function MakerSubmitDialog({
   }
 
   return (
-    <Dialog onClose={onClose} open={open}>
+    (<Dialog onClose={onClose} open={open}>
       <DialogTitle>Submit a maker to the public registry</DialogTitle>
       <DialogContent dividers>
         <DialogContentText>
@@ -72,6 +72,7 @@ export default function MakerSubmitDialog({
           other users to trade with.
         </DialogContentText>
         <TextField
+          variant="standard"
           autoFocus
           margin="dense"
           label="Multiaddress"
@@ -83,17 +84,16 @@ export default function MakerSubmitDialog({
           value={multiAddr}
           onChange={handleMultiAddrChange}
           placeholder="/ip4/182.3.21.93/tcp/9939"
-          error={!!getMultiAddressError()}
-        />
+          error={!!getMultiAddressError()} />
         <TextField
+          variant="standard"
           margin="dense"
           label="Peer ID"
           fullWidth
           helperText="Identifies the maker and allows for secure communication"
           value={peerId}
           onChange={handlePeerIdChange}
-          placeholder="12D3KooWCdMKjesXMJz1SiZ7HgotrxuqhQJbP5sgBm2BwP1cqThi"
-        />
+          placeholder="12D3KooWCdMKjesXMJz1SiZ7HgotrxuqhQJbP5sgBm2BwP1cqThi" />
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
@@ -106,6 +106,6 @@ export default function MakerSubmitDialog({
           Submit
         </Button>
       </DialogActions>
-    </Dialog>
+    </Dialog>)
   );
 }

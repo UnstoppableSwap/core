@@ -1,4 +1,4 @@
-import { Box, Chip, Typography } from "@material-ui/core";
+import { Box, Chip, Typography } from "@mui/material";
 import { CliLog } from "models/cliModel";
 import { useMemo, useState } from "react";
 import { logsToRawString } from "utils/parseUtils";

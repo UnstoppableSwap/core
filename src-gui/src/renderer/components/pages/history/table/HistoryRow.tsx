@@ -1,14 +1,8 @@
-import {
-  Box,
-  Collapse,
-  IconButton,
-  makeStyles,
-  TableCell,
-  TableRow,
-} from "@material-ui/core";
-import ArrowForwardIcon from "@material-ui/icons/ArrowForward";
-import KeyboardArrowDownIcon from "@material-ui/icons/KeyboardArrowDown";
-import KeyboardArrowUpIcon from "@material-ui/icons/KeyboardArrowUp";
+import { Box, Collapse, IconButton, TableCell, TableRow } from "@mui/material";
+import makeStyles from '@mui/styles/makeStyles';
+import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
+import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
+import KeyboardArrowUpIcon from "@mui/icons-material/KeyboardArrowUp";
 import { GetSwapInfoResponse } from "models/tauriModel";
 import { useState } from "react";
 import TruncatedText from "renderer/components/other/TruncatedText";

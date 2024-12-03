@@ -1,4 +1,5 @@
-import { Box, makeStyles, TextField, Typography } from "@material-ui/core";
+import { Box, TextField, Typography } from "@mui/material";
+import makeStyles from '@mui/styles/makeStyles';
 import { BidQuote } from "models/tauriModel";
 import { useState } from "react";
 import { useAppSelector } from "store/hooks";
@@ -70,22 +71,22 @@ export default function DepositAmountHelper({
   }
 
   return (
-    <Box className={classes.outer}>
+    (<Box className={classes.outer}>
       <Typography variant="subtitle2">
         Depositing {bitcoinBalance > 0 && <>another</>}
       </Typography>
       <TextField
+        variant="standard"
         error={!!hasError()}
         value={satsToBtc(amount)}
         onChange={(e) => setAmount(btcToSats(parseFloat(e.target.value)))}
         size="small"
         type="number"
-        className={classes.textField}
-      />
+        className={classes.textField} />
       <Typography variant="subtitle2">
         BTC will give you approximately{" "}
         <MoneroAmount amount={calcXMRAmount()} />.
       </Typography>
-    </Box>
+    </Box>)
   );
 }
