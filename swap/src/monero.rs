@@ -109,6 +109,11 @@ impl Amount {
         self.0
     }
 
+    /// Return Monero Amount as XMR.
+    pub fn as_xmr(&self) -> f64 {
+        self.0 as f64 / PICONERO_OFFSET as f64
+    }
+
     /// Calculate the maximum amount of Bitcoin that can be bought at a given
     /// asking price for this amount of Monero including the median fee.
     pub fn max_bitcoin_for_price(&self, ask_price: bitcoin::Amount) -> Option<bitcoin::Amount> {
