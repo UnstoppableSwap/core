@@ -33,6 +33,8 @@ pub async fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bitcoin::address::NetworkUnchecked;
+    use bitcoin::Address;
     use ::bitcoin::Amount;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
@@ -422,12 +424,12 @@ mod tests {
     fn quote_with_min(btc: f64) -> BidQuote {
         BidQuote {
             price: Amount::from_btc(0.001).unwrap(),
-            max_quantity: Amount::max_value(),
+            max_quantity: Amount::MAX,
             min_quantity: Amount::from_btc(btc).unwrap(),
         }
     }
 
     async fn get_dummy_address() -> Result<bitcoin::Address> {
-        Ok("1PdfytjS7C8wwd9Lq5o4x9aXA2YRqaCpH6".parse()?)
+        Ok("1PdfytjS7C8wwd9Lq5o4x9aXA2YRqaCpH6".parse::<Address<NetworkUnchecked>>()?.assume_checked())
     }
 }
