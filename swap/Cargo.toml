@@ -20,9 +20,11 @@ asynchronous-codec = "0.7.0"
 atty = "0.2"
 backoff = { version = "0.4", features = [ "tokio" ] }
 base64 = "0.22"
-bdk = "0.28"
+bdk = { version = "0.28" }
+bdk_electrum = { version = "0.19", features = [ "use-rustls" ] }
+bdk_wallet = { version = "1.0.0-beta.5", features = [ "rusqlite" ] }
 big-bytes = "1"
-bitcoin = { version = "0.29", features = [ "rand", "serde" ] }
+bitcoin = { version = "0.32", features = [ "rand", "serde" ] }
 bmrng = "0.5.2"
 comfy-table = "7.1"
 config = { version = "0.14", default-features = false, features = [ "toml" ] }
@@ -60,6 +62,7 @@ reqwest = { version = "0.12", features = [
 ], default-features = false }
 rust_decimal = { version = "1", features = [ "serde-float" ] }
 rust_decimal_macros = "1"
+rustls = "0.23"
 serde = { version = "1.0", features = [ "derive" ] }
 serde_cbor = "0.11"
 serde_json = "1"
