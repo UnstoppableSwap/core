@@ -40,6 +40,12 @@ const DEFAULT_WALLET_NAME: &str = "asb-wallet";
 
 #[tokio::main]
 pub async fn main() -> Result<()> {
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .map_err(|e|
+            anyhow::anyhow!("failed to install default rustls provider: {:?}", e)
+        )?;
+
     let Arguments {
         testnet,
         json,
@@ -153,7 +159,11 @@ pub async fn main() -> Result<()> {
             let namespace = XmrBtcNamespace::from_is_testnet(testnet);
 
             // Initialize Tor client
-            let tor_client = init_tor_client(&config.data.dir).await?.into();
+            let tor_client = if config.tor.register_hidden_service {
+                init_tor_client(&config.data.dir).await?.into()
+            } else {
+                None
+            };
 
             let (mut swarm, onion_addresses) = swarm::asb(
                 &seed,
