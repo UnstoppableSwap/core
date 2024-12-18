@@ -1,114 +1,397 @@
-use crate::bitcoin::timelocks::BlockHeight;
 use crate::bitcoin::{Address, Amount, Transaction};
-use crate::env;
-use ::bitcoin::util::psbt::PartiallySignedTransaction;
-use ::bitcoin::Txid;
-use anyhow::{bail, Context, Result};
-use bdk::blockchain::{Blockchain, ElectrumBlockchain, GetTx};
-use bdk::database::BatchDatabase;
-use bdk::electrum_client::{ElectrumApi, GetHistoryRes};
-use bdk::sled::Tree;
-use bdk::wallet::export::FullyNodedExport;
-use bdk::wallet::AddressIndex;
-use bdk::{FeeRate, KeychainKind, SignOptions, SyncOptions};
-use bitcoin::util::bip32::ExtendedPrivKey;
-use bitcoin::{Network, Script};
-use reqwest::Url;
+use crate::seed::Seed;
+use anyhow::{anyhow, bail, Context, Result};
+use bdk_electrum::electrum_client::{ElectrumApi, GetHistoryRes};
+use bdk_electrum::BdkElectrumClient;
+use bdk_wallet::bitcoin::FeeRate;
+use bdk_wallet::bitcoin::Network;
+use bdk_wallet::export::FullyNodedExport;
+use bdk_wallet::psbt::PsbtUtils;
+use bdk_wallet::rusqlite::Connection;
+use bdk_wallet::template::{Bip84, DescriptorTemplate};
+use bdk_wallet::KeychainKind;
+use bdk_wallet::SignOptions;
+use bdk_wallet::WalletPersister;
+use bdk_wallet::{Balance, PersistedWallet};
+use bitcoin::bip32::Xpriv;
+use bitcoin::ScriptBuf;
+use bitcoin::{psbt::Psbt as PartiallySignedTransaction, Txid};
 use rust_decimal::prelude::*;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
-use std::collections::{BTreeMap, HashMap};
-use std::convert::TryFrom;
+use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::fmt;
+use std::fmt::Debug;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use std::time::Instant;
 use tokio::sync::{watch, Mutex};
 use tracing::{debug_span, Instrument};
 
-const SLED_TREE_NAME: &str = "default_tree";
+use super::BlockHeight;
 
 /// Assuming we add a spread of 3% we don't want to pay more than 3% of the
 /// amount for tx fees.
 const MAX_RELATIVE_TX_FEE: Decimal = dec!(0.03);
 const MAX_ABSOLUTE_TX_FEE: Decimal = dec!(100_000);
-const DUST_AMOUNT: u64 = 546;
+const DUST_AMOUNT: Amount = Amount::from_sat(546);
 
-const WALLET: &str = "wallet";
-const WALLET_OLD: &str = "wallet-old";
-
-pub struct Wallet<D = Tree, C = Client> {
-    client: Arc<Mutex<C>>,
-    wallet: Arc<Mutex<bdk::Wallet<D>>>,
-    finality_confirmations: u32,
+/// This is our wrapper around a bdk wallet and a corresponding
+/// bdk electrum client.
+/// It unifies all the functionality we need when interacting
+/// with the bitcoin network.
+///
+/// This wallet is generic over the persister, which may be a
+/// rusqlite connection, or an in-memory database, or something else.
+#[derive(Clone)]
+pub struct Wallet<Persister = Connection> {
+    /// The wallet, which is persisted to the disk.
+    wallet: Arc<Mutex<PersistedWallet<Persister>>>,
+    /// The database connection used to persist the wallet.
+    persister: Arc<Mutex<Persister>>,
+    /// The electrum client.
+    client: Arc<Mutex<Client>>,
+    /// The network this wallet is on.
     network: Network,
-    target_block: u16,
+    /// The number of confirmations (blocks) we require for a transaction
+    /// to be considered final.
+    ///
+    /// Usually set to 1.
+    finality_confirmations: u32,
+    /// We want our transactions to be confirmed after this many blocks
+    /// (used for fee estimation).
+    target_block: usize,
+}
+
+/// This is our wrapper around a bdk electrum client.
+pub struct Client {
+    /// The underlying bdk electrum client.
+    electrum: BdkElectrumClient<bdk_electrum::electrum_client::Client>,
+    /// The history of transactions for each script.
+    script_history: BTreeMap<ScriptBuf, Vec<GetHistoryRes>>,
+    /// The subscriptions to the status of transactions.
+    subscriptions: HashMap<(Txid, ScriptBuf), Subscription>,
+    /// The time of the last sync.
+    last_sync: Instant,
+    /// How often we sync with the server.
+    sync_interval: Duration,
+    /// The height of the latest block we know about.
+    latest_block_height: BlockHeight,
+}
+
+/// A subscription to the status of a given transaction
+/// that can be used to wait for the transaction to be confirmed.
+#[derive(Debug, Clone)]
+pub struct Subscription {
+    /// A receiver used to await updates to the status of the transaction.
+    receiver: watch::Receiver<ScriptStatus>,
+    /// The number of confirmations we require for a transaction to be considered final.
+    finality_confirmations: u32,
+    /// The transaction ID we are subscribing to.
+    txid: Txid,
+}
+
+/// The possible statuses of a script.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum ScriptStatus {
+    Unseen,
+    InMempool,
+    Confirmed(Confirmed),
+    Retrying,
+}
+
+/// The status of a confirmed transaction.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct Confirmed {
+    /// The depth of this transaction within the blockchain.
+    ///
+    /// Zero if the transaction is included in the latest block.
+    depth: u32,
+}
+
+/// Defines a watchable transaction.
+///
+/// For a transaction to be watchable, we need to know two things: Its
+/// transaction ID and the specific output script that is going to change.
+/// A transaction can obviously have multiple outputs but our protocol purposes,
+/// we are usually interested in a specific one.
+pub trait Watchable {
+    /// The transaction ID.
+    fn id(&self) -> Txid;
+    /// The script of the output we are interested in.
+    fn script(&self) -> ScriptBuf;
+    /// Convenience method to get both the script and the txid.
+    fn script_and_txid(&self) -> (ScriptBuf, Txid) {
+        (self.script(), self.id())
+    }
+}
+
+/// An object that can estimate fee rates and minimum relay fees.
+pub trait EstimateFeeRate {
+    /// Estimate the fee rate for a given target block.
+    fn estimate_feerate(&self, target_block: usize) -> Result<FeeRate>;
+    /// Get the minimum relay fee.
+    fn min_relay_fee(&self) -> Result<bitcoin::Amount>;
 }
 
 impl Wallet {
-    pub async fn new(
-        electrum_rpc_url: Url,
-        data_dir: impl AsRef<Path>,
-        xprivkey: ExtendedPrivKey,
-        env_config: env::Config,
-        target_block: u16,
-    ) -> Result<Self> {
-        let data_dir = data_dir.as_ref();
-        let wallet_dir = data_dir.join(WALLET);
-        let database = bdk::sled::open(wallet_dir)?.open_tree(SLED_TREE_NAME)?;
-        let network = env_config.bitcoin_network;
+    /// If this many consequent addresses are unused, we stop the full scan.
+    /// This needs to be a very big number, because we generate a lot of addresses
+    /// which might end up unused.
+    const SCAN_STOP_GAP: usize = 1_000;
+    /// The batch size for the full scan.
+    const SCAN_BATCH_SIZE: usize = 5;
 
-        let wallet = match bdk::Wallet::new(
-            bdk::template::Bip84(xprivkey, KeychainKind::External),
-            Some(bdk::template::Bip84(xprivkey, KeychainKind::Internal)),
-            network,
-            database,
-        ) {
-            Ok(w) => w,
-            Err(bdk::Error::ChecksumMismatch) => Self::migrate(data_dir, xprivkey, network)?,
-            err => err?,
+    /// Create a new wallet, persisted to a sqlite database.
+    pub async fn with_sqlite(
+        seed: &Seed,
+        network: Network,
+        electrum_rpc_url: &str,
+        data_dir: impl AsRef<Path>,
+        finality_confirmations: u32,
+        target_block: usize,
+        sync_interval: Duration,
+        env_config: crate::env::Config,
+    ) -> Result<Wallet<bdk_wallet::rusqlite::Connection>> {
+        let xprivkey = seed.derive_extended_private_key(env_config.bitcoin_network)?;
+
+        let wallet_dir = data_dir.as_ref().join("wallet").join("wallet-new");
+        let wallet_path = wallet_dir.join("walletdb.sqlite");
+        let wallet_exists = wallet_path.exists();
+
+        // Check if the old wallet directory exists and export the data if it does.
+        let old_wallet_dir = data_dir.as_ref().join(old::WALLET);
+        let export = match !wallet_exists && old_wallet_dir.exists() {
+            false => None,
+            true => {
+                tracing::info!("Found old wallet directory, fetching data for migration");
+
+                // We need to support the legacy wallet format for the migration path.
+                // We need to convert the network to the legacy BDK network type.
+                let legacy_network = match network {
+                    Network::Bitcoin => bdk::bitcoin::Network::Bitcoin,
+                    Network::Testnet => bdk::bitcoin::Network::Testnet,
+                    _ => bail!("Unsupported network: {}", network),
+                };
+
+                let xprivkey = seed.derive_extended_private_key_legacy(legacy_network)?;
+                let old_wallet = old::OldWallet::new(&old_wallet_dir, xprivkey, env_config).await?;
+
+                let export = old_wallet.export("old-wallet").await?;
+
+                tracing::debug!(
+                    old_balance=%export.balance,
+                    external_index=%export.external_derivation_index,
+                    internal_index=%export.internal_derivation_index,
+                    "Fetched data from old wallet for migration"
+                );
+
+                Some(export)
+            }
         };
 
-        let client = Client::new(electrum_rpc_url, env_config.bitcoin_sync_interval(), 5)?;
+        // Make sure the wallet directory exists.
+        tokio::fs::create_dir_all(&wallet_dir).await?;
 
-        let network = wallet.network();
+        let connection = Connection::open(&wallet_path)?;
 
-        Ok(Self {
-            client: Arc::new(Mutex::new(client)),
-            wallet: Arc::new(Mutex::new(wallet)),
-            finality_confirmations: env_config.bitcoin_finality_confirmations,
+        if wallet_exists {
+            Self::create_existing(
+                xprivkey,
+                network,
+                electrum_rpc_url,
+                connection,
+                finality_confirmations,
+                target_block,
+                sync_interval,
+            )
+            .await
+        } else {
+            Self::create_new(
+                xprivkey,
+                network,
+                electrum_rpc_url,
+                connection,
+                finality_confirmations,
+                target_block,
+                sync_interval,
+                export,
+            )
+            .await
+        }
+    }
+
+    /// Create a new wallet, persisted to an in-memory sqlite database.
+    /// Should only be used for testing.
+    pub async fn with_sqlite_in_memory(
+        seed: &Seed,
+        network: Network,
+        electrum_rpc_url: &str,
+        finality_confirmations: u32,
+        target_block: usize,
+        sync_interval: Duration,
+    ) -> Result<Wallet<bdk_wallet::rusqlite::Connection>> {
+        Ok(Self::create_new(
+            seed.derive_extended_private_key(network)?,
             network,
+            electrum_rpc_url,
+            bdk_wallet::rusqlite::Connection::open_in_memory()?,
+            finality_confirmations,
             target_block,
+            sync_interval,
+            None,
+        )
+        .await?)
+    }
+
+    /// Create a new wallet in the database and perform a full scan.
+    async fn create_new<Persister>(
+        xprivkey: Xpriv,
+        network: Network,
+        electrum_rpc_url: &str,
+        mut persister: Persister,
+        finality_confirmations: u32,
+        target_block: usize,
+        sync_interval: Duration,
+        old_wallet: Option<old::Export>,
+    ) -> Result<Wallet<Persister>>
+    where
+        Persister: WalletPersister + Sized,
+        <Persister as WalletPersister>::Error: std::error::Error + Send + Sync + 'static,
+    {
+        let (descriptor, ..) = Bip84(xprivkey, KeychainKind::External)
+            .build(network)
+            .context("Failed to build external wallet descriptor")?;
+
+        let (change_descriptor, ..) = Bip84(xprivkey, KeychainKind::Internal)
+            .build(network)
+            .context("Failed to build change wallet descriptor")?;
+
+        let mut wallet = bdk_wallet::Wallet::create(descriptor, change_descriptor)
+            .network(network)
+            .create_wallet(&mut persister)
+            .context("Failed to create wallet")?;
+
+        // If we have an old wallet, we need to reveal the addresses that were used before
+        // to speed up the initial sync.
+        if let Some(old_wallet) = old_wallet {
+            tracing::info!("Migrating from old Bitcoin wallet, revealing addresses");
+            let _ = wallet
+                .reveal_addresses_to(KeychainKind::External, old_wallet.external_derivation_index);
+            let _ = wallet
+                .reveal_addresses_to(KeychainKind::Internal, old_wallet.internal_derivation_index);
+            wallet.persist(&mut persister)?;
+        }
+
+        let client = Client::new(electrum_rpc_url, sync_interval)?;
+
+        tracing::debug!("Starting initial Bitcoin wallet scan");
+
+        let full_scan = wallet.start_full_scan();
+        let full_scan_result = client.electrum.full_scan(
+            full_scan,
+            Self::SCAN_STOP_GAP,
+            Self::SCAN_BATCH_SIZE,
+            true,
+        )?;
+
+        wallet.apply_update(full_scan_result)?;
+        wallet.persist(&mut persister)?;
+
+        tracing::debug!("Initial Bitcoin wallet scan completed");
+
+        Ok(Wallet {
+            wallet: Arc::new(Mutex::new(wallet)),
+            client: Arc::new(Mutex::new(client)),
+            network,
+            finality_confirmations,
+            target_block,
+            persister: Arc::new(Mutex::new(persister)),
         })
     }
 
-    /// Create a new database for the wallet and rename the old one.
-    /// This is necessary when getting a ChecksumMismatch from a wallet
-    /// created with an older version of BDK. Only affected Testnet wallets.
-    // https://github.com/comit-network/xmr-btc-swap/issues/1182
-    fn migrate(
-        data_dir: &Path,
-        xprivkey: ExtendedPrivKey,
-        network: bitcoin::Network,
-    ) -> Result<bdk::Wallet<Tree>> {
-        let from = data_dir.join(WALLET);
-        let to = data_dir.join(WALLET_OLD);
-        std::fs::rename(from, to)?;
+    /// Load existing wallet data from the database and perform a sync.
+    async fn create_existing<Persister>(
+        xprivkey: Xpriv,
+        network: Network,
+        electrum_rpc_url: &str,
+        mut persister: Persister,
+        finality_confirmations: u32,
+        target_block: usize,
+        sync_interval: Duration,
+    ) -> Result<Wallet<Persister>>
+    where
+        Persister: WalletPersister + Sized,
+        <Persister as WalletPersister>::Error: std::error::Error + Send + Sync + 'static,
+    {
+        let (descriptor, ..) = Bip84(xprivkey, KeychainKind::External)
+            .build(network)
+            .context("Failed to build external wallet descriptor")?;
 
-        let wallet_dir = data_dir.join(WALLET);
-        let database = bdk::sled::open(wallet_dir)?.open_tree(SLED_TREE_NAME)?;
+        let (change_descriptor, ..) = Bip84(xprivkey, KeychainKind::Internal)
+            .build(network)
+            .context("Failed to build change wallet descriptor")?;
 
-        let wallet = bdk::Wallet::new(
-            bdk::template::Bip84(xprivkey, KeychainKind::External),
-            Some(bdk::template::Bip84(xprivkey, KeychainKind::Internal)),
+        tracing::debug!("Loading Bitcoin wallet from database");
+
+        let wallet = bdk_wallet::Wallet::load()
+            .extract_keys()
+            .descriptor(KeychainKind::External, Some(descriptor))
+            .descriptor(KeychainKind::Internal, Some(change_descriptor))
+            .load_wallet(&mut persister)
+            .context("Failed to open database")?
+            .context("No wallet found in database")?;
+
+        let client = Client::new(electrum_rpc_url, sync_interval)?;
+
+        let wallet = Wallet {
+            wallet: Arc::new(Mutex::new(wallet)),
+            client: Arc::new(Mutex::new(client)),
             network,
-            database,
-        )?;
+            finality_confirmations,
+            target_block,
+            persister: Arc::new(Mutex::new(persister)),
+        };
+
+        wallet.sync().await?;
 
         Ok(wallet)
     }
 
-    /// Broadcast the given transaction to the network and emit a log statement
+    
+
+    
+}
+
+// These are the methods that are always available, regardless of the persister.
+impl<T> Wallet<T> {
+    /// Get the network of this wallet.
+    pub fn network(&self) -> Network {
+        self.network
+    }
+
+    /// Get the finality confirmations of this wallet.
+    pub fn finality_confirmations(&self) -> u32 {
+        self.finality_confirmations
+    }
+
+    /// Get the target block of this wallet.
+    ///
+    /// This is the the number of blocks we want to wait at most for
+    /// one ofour transaction to be confirmed.
+    pub fn target_block(&self) -> usize {
+        self.target_block
+    }
+}
+
+impl<Persister> Wallet<Persister>
+where
+    Persister: WalletPersister + Sized,
+    <Persister as WalletPersister>::Error: std::error::Error + Send + Sync + 'static,
+{
+    /// Broadcast the given transaction to the network and emit a tracing statement
     /// if done so successfully.
     ///
     /// Returns the transaction ID and a future for when the transaction meets
@@ -118,7 +401,7 @@ impl Wallet {
         transaction: Transaction,
         kind: &str,
     ) -> Result<(Txid, Subscription)> {
-        let txid = transaction.txid();
+        let txid = transaction.compute_txid();
 
         // to watch for confirmations, watching a single output is enough
         let subscription = self
@@ -126,20 +409,20 @@ impl Wallet {
             .await;
 
         let client = self.client.lock().await;
-        let blockchain = client.blockchain();
-
-        blockchain.broadcast(&transaction).with_context(|| {
-            format!("Failed to broadcast Bitcoin {} transaction {}", kind, txid)
-        })?;
+        client
+            .transaction_broadcast(&transaction)
+            .with_context(|| {
+                format!("Failed to broadcast Bitcoin {} transaction {}", kind, txid)
+            })?;
 
         tracing::info!(%txid, %kind, "Published Bitcoin transaction");
 
         Ok((txid, subscription))
     }
 
-    pub async fn get_raw_transaction(&self, txid: Txid) -> Result<Transaction> {
+    pub async fn get_raw_transaction(&self, txid: Txid) -> Result<Arc<Transaction>> {
         self.get_tx(txid)
-            .await?
+            .await
             .with_context(|| format!("Could not get raw tx with id: {}", txid))
     }
 
@@ -168,17 +451,17 @@ impl Wallet {
                     let mut last_status = None;
 
                     loop {
-                        let new_status = match client.lock().await.status_of_script(&tx) {
-                            Ok(new_status) => new_status,
-                            Err(error) => {
+                        let new_status = client.lock()
+                            .await
+                            .status_of_script(&tx)
+                            .unwrap_or_else(|error| {
                                 tracing::warn!(%txid, "Failed to get status of script: {:#}", error);
                                 ScriptStatus::Retrying
-                            }
-                        };
+                            });
 
                         if new_status != ScriptStatus::Retrying
                         {
-                            last_status = Some(print_status_change(txid, last_status, new_status));
+                            last_status = Some(trace_status_change(txid, last_status, new_status));
 
                             let all_receivers_gone = sender.send(new_status).is_err();
 
@@ -206,18 +489,387 @@ impl Wallet {
 
     pub async fn wallet_export(&self, role: &str) -> Result<FullyNodedExport> {
         let wallet = self.wallet.lock().await;
-        match bdk::wallet::export::FullyNodedExport::export_wallet(
-            &wallet,
+        match bdk_wallet::export::FullyNodedExport::export_wallet(
+            &*wallet,
             &format!("{}-{}", role, self.network),
             true,
         ) {
-            Ok(wallet_export) => Ok(wallet_export),
+            Result::Ok(wallet_export) => Ok(wallet_export),
             Err(err_msg) => Err(anyhow::Error::msg(err_msg)),
         }
     }
+
+    pub async fn sign_and_finalize(&self, mut psbt: bitcoin::psbt::Psbt) -> Result<Transaction> {
+        let finalized = self
+            .wallet
+            .lock()
+            .await
+            .sign(&mut psbt, SignOptions::default())?;
+
+        if !finalized {
+            bail!("PSBT is not finalized")
+        }
+
+        let tx = psbt.extract_tx();
+
+        Ok(tx?)
+    }
+
+    /// Returns the total Bitcoin balance, which includes pending funds
+    pub async fn balance(&self) -> Result<Amount> {
+        Ok(self.wallet.lock().await.balance().total())
+    }
+
+    /// Returns the balance info of the wallet, including unconfirmed funds etc.
+    pub async fn balance_info(&self) -> Result<Balance> {
+        Ok(self.wallet.lock().await.balance())
+    }
+
+    /// Reveals the next address from the wallet.
+    pub async fn new_address(&self) -> Result<Address> {
+        let mut wallet = self.wallet.lock().await;
+
+        let address = wallet.reveal_next_address(KeychainKind::External).address;
+
+        // Important: persist that we revealed a new address.
+        // Otherwise the wallet might reuse it (bad).
+        let mut persister = self.persister.lock().await;
+        wallet.persist(&mut persister)?;
+
+        Ok(address)
+    }
+
+    /// Calculate the fee for a given transaction.
+    ///
+    /// Will fail if the transaction inputs are not owned by this wallet.
+    pub async fn transaction_fee(&self, txid: Txid) -> Result<Amount> {
+        let transaction = self
+            .get_tx(txid)
+            .await
+            .context("Could not find tx in bdk wallet when trying to determine fees")?;
+        let fee = self.wallet.lock().await.calculate_fee(&transaction)?;
+
+        Ok(fee)
+    }
+
+    /// Builds a partially signed transaction
+    ///
+    /// Ensures that the address script is at output index `0`
+    /// for the partially signed transaction.
+    pub async fn send_to_address(
+        &self,
+        address: Address,
+        amount: Amount,
+        change_override: Option<Address>,
+    ) -> Result<PartiallySignedTransaction> {
+        // TODO: check if this is still needed
+        // if self.network != address.network {
+        //     bail!("Cannot build PSBT because network of given address is {} but wallet is on network {}", address.network, self.network);
+        // }
+
+        // if let Some(change) = change_override.as_ref() {
+        //     if self.network != change.network {
+        //         bail!("Cannot build PSBT because network of given address is {} but wallet is on network {}", change.network, self.network);
+        //     }
+        // }
+
+        let mut wallet = self.wallet.lock().await;
+        let client = self.client.lock().await;
+        let fee_rate = client.estimate_feerate(self.target_block)?;
+        let script = address.script_pubkey();
+
+        let mut tx_builder = wallet.build_tx();
+        tx_builder.add_recipient(script.clone(), amount);
+        tx_builder.fee_rate(fee_rate);
+        let psbt = tx_builder.finish()?;
+        let mut psbt: PartiallySignedTransaction = psbt;
+
+        match psbt.unsigned_tx.output.as_mut_slice() {
+            // our primary output is the 2nd one? reverse the vectors
+            [_, second_txout] if second_txout.script_pubkey == script => {
+                psbt.outputs.reverse();
+                psbt.unsigned_tx.output.reverse();
+            }
+            [first_txout, _] if first_txout.script_pubkey == script => {
+                // no need to do anything
+            }
+            [_] => {
+                // single output, no need do anything
+            }
+            _ => bail!("Unexpected transaction layout"),
+        }
+
+        if let ([_, change], [_, psbt_output], Some(change_override)) = (
+            &mut psbt.unsigned_tx.output.as_mut_slice(),
+            &mut psbt.outputs.as_mut_slice(),
+            change_override,
+        ) {
+            change.script_pubkey = change_override.script_pubkey();
+            // Might be populated based on the previously set change address, but for the
+            // overwrite we don't know unless we ask the user for more information.
+            psbt_output.bip32_derivation.clear();
+        }
+
+        Ok(psbt)
+    }
+
+    /// Calculates the maximum "giveable" amount of this wallet.
+    ///
+    /// We define this as the maximum amount we can pay to a single output,
+    /// already accounting for the fees we need to spend to get the
+    /// transaction confirmed.
+    pub async fn max_giveable(&self, locking_script_size: usize) -> Result<Amount> {
+        tracing::debug!("Calculating max giveable");
+        let mut wallet = self.wallet.lock().await;
+        let balance = wallet.balance();
+        if balance.total() < DUST_AMOUNT {
+            return Ok(Amount::ZERO);
+        }
+        let client = self.client.lock().await;
+        let min_relay_fee = client.min_relay_fee()?;
+
+        if balance.total() < min_relay_fee {
+            return Ok(Amount::ZERO);
+        }
+
+        let fee_rate = client.estimate_feerate(self.target_block)?;
+
+        let mut tx_builder = wallet.build_tx();
+
+        let dummy_script = ScriptBuf::from(vec![0u8; locking_script_size]);
+        tx_builder.drain_to(dummy_script);
+        tx_builder.fee_rate(fee_rate);
+        tx_builder.drain_wallet();
+
+        let psbt = tx_builder.finish()
+            .context("Failed to build transaction to figure out max giveable")?;
+
+        let max_giveable = psbt
+            .unsigned_tx
+            .output
+            .iter()
+            .map(|o| o.value)
+            .sum::<Amount>();
+
+        tracing::debug!(fee=%psbt.fee_amount().unwrap().to_sat(), "Calculated max giveable");
+
+        Ok(max_giveable)
+    }
+
+    /// Estimate total tx fee for a pre-defined target block based on the
+    /// transaction weight. The max fee cannot be more than MAX_PERCENTAGE_FEE
+    /// of amount
+    pub async fn estimate_fee(
+        &self,
+        weight: usize,
+        transfer_amount: bitcoin::Amount,
+    ) -> Result<bitcoin::Amount> {
+        let client = self.client.lock().await;
+        let fee_rate = client.estimate_feerate(self.target_block)?;
+        let min_relay_fee = client.min_relay_fee()?;
+
+        estimate_fee(weight, transfer_amount, fee_rate, min_relay_fee)
+    }
+
+    /// Get a transaction from the Electrum server or the cache.
+    pub async fn get_tx(&self, txid: Txid) -> Result<Arc<Transaction>> {
+        let client = self.client.lock().await;
+        let tx = client
+            .get_tx(txid)
+            .context("Failed to get transaction from cache or Electrum server")?;
+
+        Ok(tx)
+    }
+
+    /// Sync the wallet with the blockchain.
+    pub async fn sync(&self) -> Result<()> {
+        const BATCH_SIZE: usize = 64;
+
+        let sync_request = self
+            .wallet
+            .lock()
+            .await
+            .start_sync_with_revealed_spks()
+            .build();
+
+        let client = self.client.lock().await;
+        let res = client.electrum.sync(sync_request, BATCH_SIZE, true)?;
+
+        let mut wallet = self.wallet.lock().await;
+        wallet.apply_update(res)?;
+
+        let mut persister = self.persister.lock().await;
+        wallet.persist(&mut persister)?;
+
+        Ok(())
+    }
 }
 
-fn print_status_change(txid: Txid, old: Option<ScriptStatus>, new: ScriptStatus) -> ScriptStatus {
+impl Client {
+    /// Create a new client to this electrum server.
+    pub fn new(electrum_rpc_url: &str, sync_interval: Duration) -> Result<Self> {
+        let client = bdk_electrum::electrum_client::Client::new(electrum_rpc_url)?;
+        Ok(Self {
+            electrum: BdkElectrumClient::new(client),
+            script_history: Default::default(),
+            last_sync: Instant::now()
+                .checked_sub(sync_interval)
+                .ok_or(anyhow!("failed to set last sync time"))?,
+            sync_interval,
+            latest_block_height: BlockHeight::from(0),
+            subscriptions: Default::default(),
+        })
+    }
+
+    /// Update the client state, if the refresh duration has passed.
+    ///
+    /// Optionally force an update even if the sync interval has not passed.
+    pub fn update_state(&mut self, force: bool) -> Result<()> {
+        let now = Instant::now();
+
+        if !force && now.duration_since(self.last_sync) < self.sync_interval {
+            return Ok(());
+        }
+
+        self.last_sync = now;
+        self.update_script_histories()?;
+        self.update_block_height()?;
+
+        Ok(())
+    }
+
+    /// Update the block height.
+    fn update_block_height(&mut self) -> Result<()> {
+        let latest_block = self
+            .electrum
+            .inner
+            .block_headers_subscribe()
+            .context("Failed to subscribe to header notifications")?;
+        let latest_block_height = BlockHeight::try_from(latest_block)?;
+
+        if latest_block_height > self.latest_block_height {
+            tracing::trace!(
+                block_height = u32::from(latest_block_height),
+                "Got notification for new block"
+            );
+            self.latest_block_height = latest_block_height;
+        }
+
+        Ok(())
+    }
+
+    /// Update the script histories.
+    fn update_script_histories(&mut self) -> Result<()> {
+        let scripts = self.script_history.keys().map(|s| s.as_script());
+
+        let histories = self
+            .electrum
+            .inner
+            .batch_script_get_history(scripts)
+            .context("Failed to fetch script histories")?;
+
+        if histories.len() != self.script_history.len() {
+            bail!(
+                "Expected {} script histories, got {}",
+                self.script_history.len(),
+                histories.len()
+            );
+        }
+
+        let scripts = self.script_history.keys().cloned();
+        self.script_history = scripts.zip(histories).collect();
+
+        Ok(())
+    }
+
+    /// Broadcast a transaction to the network.
+    pub fn transaction_broadcast(&self, transaction: &Transaction) -> Result<Arc<Txid>> {
+        // Broadcast the transaction to the network.
+        let res = self
+            .electrum
+            .transaction_broadcast(transaction)
+            .context("Failed to broadcast transaction")?;
+
+        // Add the transaction to the cache.
+        self.electrum.populate_tx_cache(vec![transaction.clone()]);
+
+        Ok(Arc::new(res))
+    }
+
+    /// Get the status of a script.
+    pub fn status_of_script(&mut self, script: &impl Watchable) -> Result<ScriptStatus> {
+        let (script, txid) = script.script_and_txid();
+
+        if !self.script_history.contains_key(&script) {
+            self.script_history.insert(script.clone(), vec![]);
+
+            // Immediately refetch the status of the script
+            // when we first subscribe to it.
+            self.update_state(true)?;
+        } else {
+            // Otherwise, don't force a refetch.
+            self.update_state(false)?;
+        }
+
+        let history = self.script_history.entry(script).or_default();
+
+        let history_of_tx: Vec<&GetHistoryRes> = history
+            .iter()
+            .filter(|entry| entry.tx_hash == txid)
+            .collect();
+
+        // Destructure history_of_tx into the last entry and the rest.
+        let [rest @ .., last] = history_of_tx.as_slice() else {
+            // If there is no history of the transaction, it is unseen.
+            return Ok(ScriptStatus::Unseen);
+        };
+
+        // There should only be one entry per txid, we will ignore the rest
+        if !rest.is_empty() {
+            tracing::warn!(%txid, "Found multiple history entries for the same txid. Ignoring all but the last one.");
+        }
+
+        match last.height {
+            // If the height is 0 or less, the transaction is still in the mempool.
+            ..=0 => Ok(ScriptStatus::InMempool),
+            // Otherwise, the transaction has been included in a block.
+            height => Ok(ScriptStatus::Confirmed(
+                Confirmed::from_inclusion_and_latest_block(
+                    u32::try_from(height)?,
+                    u32::from(self.latest_block_height),
+                ),
+            )),
+        }
+    }
+
+    /// Get a transaction from the Electrum server.
+    /// Fails if the transaction is not found.
+    pub fn get_tx(&self, txid: Txid) -> Result<Arc<Transaction>> {
+        self.electrum
+            .fetch_tx(txid)
+            .context("Failed to get transaction from the Electrum server")
+    }
+}
+
+impl EstimateFeeRate for Client {
+    fn estimate_feerate(&self, target_block: usize) -> Result<FeeRate> {
+        // Get the fee rate in BTC/kvB
+        let btc_per_kvb = self.electrum.inner.estimate_fee(target_block)?;
+        let amount_per_kvb = Amount::from_btc(btc_per_kvb)?;
+        // Convert to sat/kwu
+        let amount_per_kwu = amount_per_kvb.checked_div(4).context("fee rate overflow")?;
+
+        Ok(FeeRate::from_sat_per_kwu(amount_per_kwu.to_sat()))
+    }
+
+    fn min_relay_fee(&self) -> Result<bitcoin::Amount> {
+        let relay_fee_btc = self.electrum.inner.relay_fee()?;
+
+        Amount::from_btc(relay_fee_btc).context("relay fee out of range")
+    }
+}
+
+fn trace_status_change(txid: Txid, old: Option<ScriptStatus>, new: ScriptStatus) -> ScriptStatus {
     match (old, new) {
         (None, new_status) => {
             tracing::debug!(%txid, status = %new_status, "Found relevant Bitcoin transaction");
@@ -229,14 +881,6 @@ fn print_status_change(txid: Txid, old: Option<ScriptStatus>, new: ScriptStatus)
     }
 
     new
-}
-
-/// Represents a subscription to the status of a given transaction.
-#[derive(Debug, Clone)]
-pub struct Subscription {
-    receiver: watch::Receiver<ScriptStatus>,
-    finality_confirmations: u32,
-    txid: Txid,
 }
 
 impl Subscription {
@@ -294,183 +938,159 @@ impl Subscription {
     }
 }
 
-impl<D, C> Wallet<D, C>
-where
-    C: EstimateFeeRate,
-    D: BatchDatabase,
-{
-    pub async fn sign_and_finalize(
-        &self,
-        mut psbt: PartiallySignedTransaction,
-    ) -> Result<Transaction> {
-        let finalized = self
-            .wallet
-            .lock()
-            .await
-            .sign(&mut psbt, SignOptions::default())?;
+pub mod old {
+    //! This module contains some code for creating a bdk wallet from before the update.
+    //! We need to keep this around to be able to migrate the wallet.
 
-        if !finalized {
-            bail!("PSBT is not finalized")
-        }
+    use std::path::Path;
+    use std::sync::Arc;
 
-        let tx = psbt.extract_tx();
+    use anyhow::{anyhow, bail, Result};
+    use bdk::bitcoin::{util::bip32::ExtendedPrivKey, Network};
+    use bdk::sled::Tree;
+    use bdk::KeychainKind;
+    use bitcoin::Amount;
+    use tokio::sync::Mutex;
 
-        Ok(tx)
+    use crate::env;
+
+    pub const WALLET: &str = "wallet";
+    const WALLET_OLD: &str = "wallet-old";
+
+    const SLED_TREE_NAME: &str = "default_tree";
+
+    /// The is the old bdk wallet before the migration.
+    /// We need to contruct it before migration to get the keys and revelation indeces.
+    pub struct OldWallet<D = Tree> {
+        wallet: Arc<Mutex<bdk::Wallet<D>>>,
+        network: Network,
     }
 
-    /// Returns the total Bitcoin balance, which includes pending funds
-    pub async fn balance(&self) -> Result<Amount> {
-        let balance = self
-            .wallet
-            .lock()
-            .await
-            .get_balance()
-            .context("Failed to calculate Bitcoin balance")?;
+    /// This is all the data we need from the old wallet to be able to migrate it
+    /// and check whether we did it correctly.
+    pub struct Export {
+        /// Wallet descriptor and blockheight.
+        pub export: bdk_wallet::export::FullyNodedExport,
+        /// Index of the last external address that was revealed.
+        pub external_derivation_index: u32,
+        /// Index of the last internal address that was revealed.
+        pub internal_derivation_index: u32,
 
-        Ok(Amount::from_sat(balance.get_total()))
+        // The following we include to check whether the migration was successful
+        /// The balance of the wallet.
+        pub balance: Amount,
+        /// The last internal address that was revealed.
+        pub last_revealed_internal: String,
+        /// The last external address that was revealed.
+        pub last_revealed_external: String,
     }
 
-    pub async fn new_address(&self) -> Result<Address> {
-        let address = self
-            .wallet
-            .lock()
-            .await
-            .get_address(AddressIndex::New)
-            .context("Failed to get new Bitcoin address")?
-            .address;
+    impl OldWallet {
+        /// Create a new old wallet.
+        pub async fn new(
+            data_dir: impl AsRef<Path>,
+            xprivkey: ExtendedPrivKey,
+            env_config: env::Config,
+        ) -> Result<Self> {
+            let data_dir = data_dir.as_ref();
+            let wallet_dir = data_dir.join(WALLET);
+            let database = bdk::sled::open(wallet_dir)?.open_tree(SLED_TREE_NAME)?;
+            let network = env_config.bitcoin_network;
 
-        Ok(address)
-    }
+            // Convert bitcoin network to the bdk network type...
+            let network = match network {
+                bitcoin::Network::Bitcoin => bdk::bitcoin::Network::Bitcoin,
+                bitcoin::Network::Testnet => bdk::bitcoin::Network::Testnet,
+                bitcoin::Network::Regtest => bdk::bitcoin::Network::Regtest,
+                bitcoin::Network::Signet => bdk::bitcoin::Network::Signet,
+                _ => bail!("Unsupported network"),
+            };
 
-    pub async fn transaction_fee(&self, txid: Txid) -> Result<Amount> {
-        let fees = self
-            .wallet
-            .lock()
-            .await
-            .list_transactions(true)?
-            .iter()
-            .find(|tx| tx.txid == txid)
-            .context("Could not find tx in bdk wallet when trying to determine fees")?
-            .fee
-            .expect("fees are always present with Electrum backend");
+            let wallet = match bdk::Wallet::new(
+                bdk::template::Bip84(xprivkey, KeychainKind::External),
+                Some(bdk::template::Bip84(xprivkey, KeychainKind::Internal)),
+                network,
+                database,
+            ) {
+                Ok(w) => w,
+                Err(bdk::Error::ChecksumMismatch) => {
+                    Self::old_migrate(data_dir, xprivkey, network)?
+                }
+                err => err?,
+            };
 
-        Ok(Amount::from_sat(fees))
-    }
+            let network = wallet.network();
 
-    /// Builds a partially signed transaction
-    ///
-    /// Ensures that the address script is at output index `0`
-    /// for the partially signed transaction.
-    pub async fn send_to_address(
-        &self,
-        address: Address,
-        amount: Amount,
-        change_override: Option<Address>,
-    ) -> Result<PartiallySignedTransaction> {
-        if self.network != address.network {
-            bail!("Cannot build PSBT because network of given address is {} but wallet is on network {}", address.network, self.network);
+            Ok(Self {
+                wallet: Arc::new(Mutex::new(wallet)),
+                network,
+            })
         }
 
-        if let Some(change) = change_override.as_ref() {
-            if self.network != change.network {
-                bail!("Cannot build PSBT because network of given address is {} but wallet is on network {}", change.network, self.network);
-            }
+        /// Get a full export of the wallet including descriptors and blockheight.
+        /// It also includes the internal (change) address and external (receiving) address derivation indices.
+        pub async fn export(&self, role: &str) -> Result<Export> {
+            let wallet = self.wallet.lock().await;
+            let export = bdk::wallet::export::FullyNodedExport::export_wallet(
+                &wallet,
+                &format!("{}-{}", role, self.network),
+                true,
+            )
+            .map_err(|_| anyhow!("Failed to export old wallet descriptor"))?;
+
+            let balance = wallet.get_balance()?;
+
+            // Because we upgraded bdk, the type id changed.
+            // Thus, we serialize to json and then deserialize to the new type.
+            let json = serde_json::to_string(&export)?;
+            let export = serde_json::from_str::<bdk_wallet::export::FullyNodedExport>(&json)?;
+
+            let external_info = wallet.get_address(bdk::wallet::AddressIndex::LastUnused)?;
+            let external_derivation_index = external_info.index;
+            let last_revealed_external = external_info.address.to_string();
+
+            let internal_info =
+                wallet.get_internal_address(bdk::wallet::AddressIndex::LastUnused)?;
+            let internal_derivation_index = internal_info.index;
+            let last_revealed_internal = internal_info.address.to_string();
+
+            Ok(Export {
+                export,
+                internal_derivation_index,
+                external_derivation_index,
+                balance: Amount::from_sat(balance.get_total()),
+                last_revealed_internal,
+                last_revealed_external,
+            })
         }
 
-        let wallet = self.wallet.lock().await;
-        let client = self.client.lock().await;
-        let fee_rate = client.estimate_feerate(self.target_block)?;
-        let script = address.script_pubkey();
+        /// Create a new old database for the wallet and rename the old old one.
+        ///
+        /// Create a new database for the wallet and rename the old one.
+        /// This is necessary when getting a ChecksumMismatch from a wallet
+        /// created with an older version of BDK. Only affected Testnet wallets.
+        // https://github.com/comit-network/xmr-btc-swap/issues/1182
+        fn old_migrate(
+            data_dir: &Path,
+            xprivkey: ExtendedPrivKey,
+            network: bdk::bitcoin::Network,
+        ) -> Result<bdk::Wallet<Tree>> {
+            let from = data_dir.join(WALLET);
+            let to = data_dir.join(WALLET_OLD);
+            std::fs::rename(from, to)?;
 
-        let mut tx_builder = wallet.build_tx();
-        tx_builder.add_recipient(script.clone(), amount.to_sat());
-        tx_builder.fee_rate(fee_rate);
-        let (psbt, _details) = tx_builder.finish()?;
-        let mut psbt: PartiallySignedTransaction = psbt;
+            let wallet_dir = data_dir.join(WALLET);
+            let database = bdk::sled::open(wallet_dir)?.open_tree(SLED_TREE_NAME)?;
 
-        match psbt.unsigned_tx.output.as_mut_slice() {
-            // our primary output is the 2nd one? reverse the vectors
-            [_, second_txout] if second_txout.script_pubkey == script => {
-                psbt.outputs.reverse();
-                psbt.unsigned_tx.output.reverse();
-            }
-            [first_txout, _] if first_txout.script_pubkey == script => {
-                // no need to do anything
-            }
-            [_] => {
-                // single output, no need do anything
-            }
-            _ => bail!("Unexpected transaction layout"),
+            let wallet = bdk::Wallet::new(
+                bdk::template::Bip84(xprivkey, KeychainKind::External),
+                Some(bdk::template::Bip84(xprivkey, KeychainKind::Internal)),
+                network,
+                database,
+            )?;
+
+            Ok(wallet)
         }
-
-        if let ([_, change], [_, psbt_output], Some(change_override)) = (
-            &mut psbt.unsigned_tx.output.as_mut_slice(),
-            &mut psbt.outputs.as_mut_slice(),
-            change_override,
-        ) {
-            change.script_pubkey = change_override.script_pubkey();
-            // Might be populated based on the previously set change address, but for the
-            // overwrite we don't know unless we ask the user for more information.
-            psbt_output.bip32_derivation.clear();
-        }
-
-        Ok(psbt)
-    }
-
-    /// Calculates the maximum "giveable" amount of this wallet.
-    ///
-    /// We define this as the maximum amount we can pay to a single output,
-    /// already accounting for the fees we need to spend to get the
-    /// transaction confirmed.
-    pub async fn max_giveable(&self, locking_script_size: usize) -> Result<Amount> {
-        let wallet = self.wallet.lock().await;
-        let balance = wallet.get_balance()?;
-        if balance.get_total() < DUST_AMOUNT {
-            return Ok(Amount::ZERO);
-        }
-        let client = self.client.lock().await;
-        let min_relay_fee = client.min_relay_fee()?.to_sat();
-
-        if balance.get_total() < min_relay_fee {
-            return Ok(Amount::ZERO);
-        }
-
-        let fee_rate = client.estimate_feerate(self.target_block)?;
-
-        let mut tx_builder = wallet.build_tx();
-
-        let dummy_script = Script::from(vec![0u8; locking_script_size]);
-        tx_builder.drain_to(dummy_script);
-        tx_builder.fee_rate(fee_rate);
-        tx_builder.drain_wallet();
-
-        let response = tx_builder.finish();
-        match response {
-            Ok((_, details)) => {
-                let max_giveable = details.sent
-                    - details
-                        .fee
-                        .expect("fees are always present with Electrum backend");
-                Ok(Amount::from_sat(max_giveable))
-            }
-            Err(bdk::Error::InsufficientFunds { .. }) => Ok(Amount::ZERO),
-            Err(e) => bail!("Failed to build transaction. {:#}", e),
-        }
-    }
-
-    /// Estimate total tx fee for a pre-defined target block based on the
-    /// transaction weight. The max fee cannot be more than MAX_PERCENTAGE_FEE
-    /// of amount
-    pub async fn estimate_fee(
-        &self,
-        weight: usize,
-        transfer_amount: bitcoin::Amount,
-    ) -> Result<bitcoin::Amount> {
-        let client = self.client.lock().await;
-        let fee_rate = client.estimate_feerate(self.target_block)?;
-        let min_relay_fee = client.min_relay_fee()?;
-
-        estimate_fee(weight, transfer_amount, fee_rate, min_relay_fee)
     }
 }
 
@@ -483,11 +1103,11 @@ fn estimate_fee(
     if transfer_amount.to_sat() <= 546 {
         bail!("Amounts needs to be greater than Bitcoin dust amount.")
     }
-    let fee_rate_svb = fee_rate.as_sat_per_vb();
-    if fee_rate_svb <= 0.0 {
+    let fee_rate_svb = fee_rate.to_sat_per_vb_ceil();
+    if fee_rate_svb <= 0 {
         bail!("Fee rate needs to be > 0")
     }
-    if fee_rate_svb > 100_000_000.0 || min_relay_fee.to_sat() > 100_000_000 {
+    if fee_rate_svb > 100_000_000 || min_relay_fee.to_sat() > 100_000_000 {
         bail!("A fee_rate or min_relay_fee of > 1BTC does not make sense")
     }
 
@@ -500,7 +1120,7 @@ fn estimate_fee(
 
     let weight = Decimal::from(weight);
     let weight_factor = dec!(4.0);
-    let fee_rate = Decimal::from_f32(fee_rate_svb).context("Failed to parse fee rate")?;
+    let fee_rate = Decimal::from_u64(fee_rate_svb).context("Failed to parse fee rate")?;
 
     let sats_per_vbyte = weight / weight_factor * fee_rate;
 
@@ -544,360 +1164,14 @@ fn estimate_fee(
     Ok(amount)
 }
 
-impl<D> Wallet<D>
-where
-    D: BatchDatabase,
-{
-    pub async fn get_tx(&self, txid: Txid) -> Result<Option<Transaction>> {
-        let client = self.client.lock().await;
-        let tx = client.get_tx(&txid)?;
-
-        Ok(tx)
-    }
-
-    pub async fn sync(&self) -> Result<()> {
-        let client = self.client.lock().await;
-        let blockchain = client.blockchain();
-        let sync_opts = SyncOptions::default();
-        self.wallet
-            .lock()
-            .await
-            .sync(blockchain, sync_opts)
-            .context("Failed to sync balance of Bitcoin wallet")?;
-
-        Ok(())
-    }
-}
-
-impl<D, C> Wallet<D, C> {
-    // TODO: Get rid of this by changing bounds on bdk::Wallet
-    pub fn get_network(&self) -> bitcoin::Network {
-        self.network
-    }
-}
-
-pub trait EstimateFeeRate {
-    fn estimate_feerate(&self, target_block: u16) -> Result<FeeRate>;
-    fn min_relay_fee(&self) -> Result<bitcoin::Amount>;
-}
-
-#[cfg(test)]
-pub struct StaticFeeRate {
-    fee_rate: FeeRate,
-    min_relay_fee: bitcoin::Amount,
-}
-
-#[cfg(test)]
-impl EstimateFeeRate for StaticFeeRate {
-    fn estimate_feerate(&self, _target_block: u16) -> Result<FeeRate> {
-        Ok(self.fee_rate)
-    }
-
-    fn min_relay_fee(&self) -> Result<bitcoin::Amount> {
-        Ok(self.min_relay_fee)
-    }
-}
-
-#[cfg(test)]
-#[derive(Debug)]
-pub struct WalletBuilder {
-    utxo_amount: u64,
-    sats_per_vb: f32,
-    min_relay_fee_sats: u64,
-    key: bitcoin::util::bip32::ExtendedPrivKey,
-    num_utxos: u8,
-}
-
-#[cfg(test)]
-impl WalletBuilder {
-    /// Creates a new, funded wallet with sane default fees.
-    ///
-    /// Unless you are testing things related to fees, this is likely what you
-    /// want.
-    pub fn new(amount: u64) -> Self {
-        WalletBuilder {
-            utxo_amount: amount,
-            sats_per_vb: 1.0,
-            min_relay_fee_sats: 1000,
-            key: "tprv8ZgxMBicQKsPeZRHk4rTG6orPS2CRNFX3njhUXx5vj9qGog5ZMH4uGReDWN5kCkY3jmWEtWause41CDvBRXD1shKknAMKxT99o9qUTRVC6m".parse().unwrap(),
-            num_utxos: 1,
-        }
-    }
-
-    pub fn with_zero_fees(self) -> Self {
-        Self {
-            sats_per_vb: 0.0,
-            min_relay_fee_sats: 0,
-            ..self
-        }
-    }
-
-    pub fn with_fees(self, sats_per_vb: f32, min_relay_fee_sats: u64) -> Self {
-        Self {
-            sats_per_vb,
-            min_relay_fee_sats,
-            ..self
-        }
-    }
-
-    pub fn with_key(self, key: bitcoin::util::bip32::ExtendedPrivKey) -> Self {
-        Self { key, ..self }
-    }
-
-    pub fn with_num_utxos(self, number: u8) -> Self {
-        Self {
-            num_utxos: number,
-            ..self
-        }
-    }
-
-    pub fn build(self) -> Wallet<bdk::database::MemoryDatabase, StaticFeeRate> {
-        use bdk::database::{BatchOperations, MemoryDatabase, SyncTime};
-        use bdk::{testutils, BlockTime};
-
-        let descriptors = testutils!(@descriptors (&format!("wpkh({}/*)", self.key)));
-
-        let mut database = MemoryDatabase::new();
-
-        for index in 0..self.num_utxos {
-            bdk::populate_test_db!(
-                &mut database,
-                testutils! {
-                    @tx ( (@external descriptors, index as u32) => self.utxo_amount ) (@confirmations 1)
-                },
-                Some(100)
-            );
-        }
-        let block_time = bdk::BlockTime {
-            height: 100,
-            timestamp: 0,
-        };
-        let sync_time = SyncTime { block_time };
-        database.set_sync_time(sync_time).unwrap();
-
-        let wallet = bdk::Wallet::new(&descriptors.0, None, Network::Regtest, database).unwrap();
-
-        Wallet {
-            client: Arc::new(Mutex::new(StaticFeeRate {
-                fee_rate: FeeRate::from_sat_per_vb(self.sats_per_vb),
-                min_relay_fee: bitcoin::Amount::from_sat(self.min_relay_fee_sats),
-            })),
-            wallet: Arc::new(Mutex::new(wallet)),
-            finality_confirmations: 1,
-            network: Network::Regtest,
-            target_block: 1,
-        }
-    }
-}
-
-/// Defines a watchable transaction.
-///
-/// For a transaction to be watchable, we need to know two things: Its
-/// transaction ID and the specific output script that is going to change.
-/// A transaction can obviously have multiple outputs but our protocol purposes,
-/// we are usually interested in a specific one.
-pub trait Watchable {
-    fn id(&self) -> Txid;
-    fn script(&self) -> Script;
-}
-
-impl Watchable for (Txid, Script) {
+impl Watchable for (Txid, ScriptBuf) {
     fn id(&self) -> Txid {
         self.0
     }
 
-    fn script(&self) -> Script {
+    fn script(&self) -> ScriptBuf {
         self.1.clone()
     }
-}
-
-pub struct Client {
-    electrum: bdk::electrum_client::Client,
-    blockchain: ElectrumBlockchain,
-    latest_block_height: BlockHeight,
-    last_sync: Instant,
-    sync_interval: Duration,
-    script_history: BTreeMap<Script, Vec<GetHistoryRes>>,
-    subscriptions: HashMap<(Txid, Script), Subscription>,
-}
-
-impl Client {
-    pub fn new(electrum_rpc_url: Url, interval: Duration, retry_count: u8) -> Result<Self> {
-        let config = bdk::electrum_client::ConfigBuilder::default()
-            .retry(retry_count)
-            .build();
-
-        let electrum = bdk::electrum_client::Client::from_config(electrum_rpc_url.as_str(), config)
-            .context("Failed to initialize Electrum RPC client")?;
-
-        // Initially fetch the latest block for storing the height.
-        // We do not act on this subscription after this call.
-        let latest_block = electrum
-            .block_headers_subscribe()
-            .context("Failed to subscribe to header notifications")?;
-
-        let client = bdk::electrum_client::Client::new(electrum_rpc_url.as_str())
-            .context("Failed to initialize Electrum RPC client")?;
-
-        let blockchain = ElectrumBlockchain::from(client);
-        let last_sync = Instant::now()
-            .checked_sub(interval)
-            .expect("no underflow since block time is only 600 secs");
-
-        Ok(Self {
-            electrum,
-            blockchain,
-            latest_block_height: BlockHeight::try_from(latest_block)?,
-            last_sync,
-            sync_interval: interval,
-            script_history: Default::default(),
-            subscriptions: Default::default(),
-        })
-    }
-
-    fn blockchain(&self) -> &ElectrumBlockchain {
-        &self.blockchain
-    }
-
-    fn get_tx(&self, txid: &Txid) -> Result<Option<Transaction>, bdk::Error> {
-        self.blockchain.get_tx(txid)
-    }
-
-    fn update_state(&mut self, force_sync: bool) -> Result<()> {
-        let now = Instant::now();
-
-        if !force_sync && now < self.last_sync + self.sync_interval {
-            return Ok(());
-        }
-
-        self.last_sync = now;
-        self.update_latest_block()?;
-        self.update_script_histories()?;
-
-        Ok(())
-    }
-
-    fn status_of_script<T>(&mut self, tx: &T) -> Result<ScriptStatus>
-    where
-        T: Watchable,
-    {
-        let txid = tx.id();
-        let script = tx.script();
-
-        if !self.script_history.contains_key(&script) {
-            self.script_history.insert(script.clone(), vec![]);
-
-            // When we first subscribe to a script we want to immediately fetch its status
-            // Otherwise we would have to wait for the next sync interval, which can take a minute
-            // This would result in potentially inaccurate status updates until that next sync interval is hit
-            self.update_state(true)?;
-        } else {
-            self.update_state(false)?;
-        }
-
-        let history = self.script_history.entry(script).or_default();
-
-        let history_of_tx = history
-            .iter()
-            .filter(|entry| entry.tx_hash == txid)
-            .collect::<Vec<_>>();
-
-        match history_of_tx.as_slice() {
-            [] => Ok(ScriptStatus::Unseen),
-            [remaining @ .., last] => {
-                if !remaining.is_empty() {
-                    tracing::warn!("Found more than a single history entry for script. This is highly unexpected and those history entries will be ignored")
-                }
-
-                if last.height <= 0 {
-                    Ok(ScriptStatus::InMempool)
-                } else {
-                    Ok(ScriptStatus::Confirmed(
-                        Confirmed::from_inclusion_and_latest_block(
-                            u32::try_from(last.height)?,
-                            u32::from(self.latest_block_height),
-                        ),
-                    ))
-                }
-            }
-        }
-    }
-
-    fn update_latest_block(&mut self) -> Result<()> {
-        // Fetch the latest block for storing the height.
-        // We do not act on this subscription after this call, as we cannot rely on
-        // subscription push notifications because eventually the Electrum server will
-        // close the connection and subscriptions are not automatically renewed
-        // upon renewing the connection.
-        let latest_block = self
-            .electrum
-            .block_headers_subscribe()
-            .context("Failed to subscribe to header notifications")?;
-        let latest_block_height = BlockHeight::try_from(latest_block)?;
-
-        if latest_block_height > self.latest_block_height {
-            tracing::trace!(
-                block_height = u32::from(latest_block_height),
-                "Got notification for new block"
-            );
-            self.latest_block_height = latest_block_height;
-        }
-
-        Ok(())
-    }
-
-    fn update_script_histories(&mut self) -> Result<()> {
-        let histories = self
-            .electrum
-            .batch_script_get_history(self.script_history.keys())
-            .context("Failed to get script histories")?;
-
-        if histories.len() != self.script_history.len() {
-            bail!(
-                "Expected {} history entries, received {}",
-                self.script_history.len(),
-                histories.len()
-            );
-        }
-
-        let scripts = self.script_history.keys().cloned();
-        let histories = histories.into_iter();
-
-        self.script_history = scripts.zip(histories).collect::<BTreeMap<_, _>>();
-
-        Ok(())
-    }
-}
-
-impl EstimateFeeRate for Client {
-    fn estimate_feerate(&self, target_block: u16) -> Result<FeeRate> {
-        // https://github.com/romanz/electrs/blob/f9cf5386d1b5de6769ee271df5eef324aa9491bc/src/rpc.rs#L213
-        // Returned estimated fees are per BTC/kb.
-        let fee_per_byte = self.electrum.estimate_fee(target_block.into())?;
-
-        if fee_per_byte < 0.0 {
-            bail!("Fee per byte returned by electrum server is negative: {}. This may indicate that fee estimation is not supported by this server", fee_per_byte);
-        }
-
-        // we do not expect fees being that high.
-        #[allow(clippy::cast_possible_truncation)]
-        Ok(FeeRate::from_btc_per_kvb(fee_per_byte as f32))
-    }
-
-    fn min_relay_fee(&self) -> Result<bitcoin::Amount> {
-        // https://github.com/romanz/electrs/blob/f9cf5386d1b5de6769ee271df5eef324aa9491bc/src/rpc.rs#L219
-        // Returned fee is in BTC/kb
-        let relay_fee = bitcoin::Amount::from_btc(self.electrum.relay_fee()?)?;
-        Ok(relay_fee)
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum ScriptStatus {
-    Unseen,
-    InMempool,
-    Confirmed(Confirmed),
-    Retrying,
 }
 
 impl ScriptStatus {
@@ -907,14 +1181,6 @@ impl ScriptStatus {
             confirmations => Self::Confirmed(Confirmed::new(confirmations - 1)),
         }
     }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct Confirmed {
-    /// The depth of this transaction within the blockchain.
-    ///
-    /// Will be zero if the transaction is included in the latest block.
-    depth: u32,
 }
 
 impl Confirmed {
@@ -1004,10 +1270,121 @@ impl fmt::Display for ScriptStatus {
 }
 
 #[cfg(test)]
+pub struct StaticFeeRate {
+    fee_rate: FeeRate,
+    min_relay_fee: bitcoin::Amount,
+}
+
+#[cfg(test)]
+impl StaticFeeRate {
+    pub fn new(fee_rate: FeeRate, min_relay_fee: bitcoin::Amount) -> Self {
+        Self {
+            fee_rate,
+            min_relay_fee,
+        }
+    }
+}
+
+#[cfg(test)]
+impl EstimateFeeRate for StaticFeeRate {
+    fn estimate_feerate(&self, _target_block: usize) -> Result<FeeRate> {
+        Ok(self.fee_rate)
+    }
+
+    fn min_relay_fee(&self) -> Result<bitcoin::Amount> {
+        Ok(self.min_relay_fee)
+    }
+}
+
+#[cfg(test)]
+#[derive(Debug)]
+pub struct WalletBuilder {
+    utxo_amount: u64,
+    sats_per_vb: u64,
+    min_relay_fee_sats: u64,
+    key: bitcoin::bip32::Xpriv,
+    num_utxos: u8,
+}
+
+#[cfg(test)]
+impl WalletBuilder {
+    /// Creates a new, funded wallet with sane default fees.
+    ///
+    /// Unless you are testing things related to fees, this is likely what you
+    /// want.
+    pub fn new(amount: u64) -> Self {
+        WalletBuilder {
+            utxo_amount: amount,
+            sats_per_vb: 1,
+            min_relay_fee_sats: 1000,
+            key: "tprv8ZgxMBicQKsPeZRHk4rTG6orPS2CRNFX3njhUXx5vj9qGog5ZMH4uGReDWN5kCkY3jmWEtWause41CDvBRXD1shKknAMKxT99o9qUTRVC6m".parse().unwrap(),
+            num_utxos: 1,
+        }
+    }
+
+    pub fn with_zero_fees(self) -> Self {
+        Self {
+            sats_per_vb: 0,
+            min_relay_fee_sats: 0,
+            ..self
+        }
+    }
+
+    pub fn with_fees(self, sats_per_vb: u64, min_relay_fee_sats: u64) -> Self {
+        Self {
+            sats_per_vb,
+            min_relay_fee_sats,
+            ..self
+        }
+    }
+
+    pub fn with_key(self, key: bitcoin::bip32::Xpriv) -> Self {
+        Self { key, ..self }
+    }
+
+    pub fn with_num_utxos(self, number: u8) -> Self {
+        Self {
+            num_utxos: number,
+            ..self
+        }
+    }
+
+    pub async fn build(self) -> Wallet<bdk_wallet::rusqlite::Connection> {
+        let mut database = Connection::open_in_memory().expect("sqlite in memory to work");
+
+        panic!("TODO: find a way to populate the database that works with the new bdk version");
+
+        // for index in 0..self.num_utxos {
+        //     bdk::populate_test_db!(
+        //         &mut database,
+        //         testutils! {
+        //             @tx ( (@external descriptors, index as u32) => self.utxo_amount ) (@confirmations 1)
+        //         },
+        //         Some(100)
+        //     );
+        // }
+
+        let mut wallet = super::Wallet::with_sqlite_in_memory(
+            self.key,
+            Network::Regtest,
+            None,
+            1,
+            1,
+            Duration::from_secs(10),
+        )
+        .await
+        .unwrap();
+
+        wallet
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::bitcoin::{PublicKey, TxLock};
     use crate::tracing_ext::capture_logs;
+    use bitcoin::address::NetworkUnchecked;
     use bitcoin::hashes::Hash;
     use proptest::prelude::*;
     use tracing::level_filters::LevelFilter;
@@ -1073,8 +1450,8 @@ mod tests {
         let weight = 400;
         let amount = bitcoin::Amount::from_sat(100_000_000);
 
-        let sat_per_vb = 100.0;
-        let fee_rate = FeeRate::from_sat_per_vb(sat_per_vb);
+        let sat_per_vb = 100;
+        let fee_rate = FeeRate::from_sat_per_vb(sat_per_vb).unwrap();
 
         let relay_fee = bitcoin::Amount::ONE_SAT;
         let is_fee = estimate_fee(weight, amount, fee_rate, relay_fee).unwrap();
@@ -1090,8 +1467,8 @@ mod tests {
         let weight = 400;
         let amount = bitcoin::Amount::from_sat(100_000_000);
 
-        let sat_per_vb = 1.0;
-        let fee_rate = FeeRate::from_sat_per_vb(sat_per_vb);
+        let sat_per_vb = 1;
+        let fee_rate = FeeRate::from_sat_per_vb(sat_per_vb).unwrap();
 
         let relay_fee = bitcoin::Amount::from_sat(100_000);
         let is_fee = estimate_fee(weight, amount, fee_rate, relay_fee).unwrap();
@@ -1108,8 +1485,8 @@ mod tests {
         let weight = 400;
         let amount = bitcoin::Amount::from_sat(1_000_000);
 
-        let sat_per_vb = 1_000.0;
-        let fee_rate = FeeRate::from_sat_per_vb(sat_per_vb);
+        let sat_per_vb = 1_000;
+        let fee_rate = FeeRate::from_sat_per_vb(sat_per_vb).unwrap();
 
         let relay_fee = bitcoin::Amount::ONE_SAT;
         let is_fee = estimate_fee(weight, amount, fee_rate, relay_fee).unwrap();
@@ -1127,8 +1504,8 @@ mod tests {
         let weight = 400;
         let amount = bitcoin::Amount::from_sat(100_000_000);
 
-        let sat_per_vb = 4_000_000.0;
-        let fee_rate = FeeRate::from_sat_per_vb(sat_per_vb);
+        let sat_per_vb = 4_000_000;
+        let fee_rate = FeeRate::from_sat_per_vb(sat_per_vb).unwrap();
 
         let relay_fee = bitcoin::Amount::ONE_SAT;
         let is_fee = estimate_fee(weight, amount, fee_rate, relay_fee).unwrap();
@@ -1142,13 +1519,13 @@ mod tests {
         #[test]
         fn given_randon_amount_random_fee_and_random_relay_rate_but_fix_weight_does_not_error(
             amount in 547u64..,
-            sat_per_vb in 1.0f32..100_000_000.0f32,
+            sat_per_vb in 1u64..100_000_000,
             relay_fee in 0u64..100_000_000u64
         ) {
             let weight = 400;
             let amount = bitcoin::Amount::from_sat(amount);
 
-            let fee_rate = FeeRate::from_sat_per_vb(sat_per_vb);
+            let fee_rate = FeeRate::from_sat_per_vb(sat_per_vb).unwrap();
 
             let relay_fee = bitcoin::Amount::from_sat(relay_fee);
             let _is_fee = estimate_fee(weight, amount, fee_rate, relay_fee).unwrap();
@@ -1164,8 +1541,8 @@ mod tests {
             let weight = 400;
             let amount = bitcoin::Amount::from_sat(amount);
 
-            let sat_per_vb = 100.0;
-            let fee_rate = FeeRate::from_sat_per_vb(sat_per_vb);
+            let sat_per_vb = 100;
+            let fee_rate = FeeRate::from_sat_per_vb(sat_per_vb).unwrap();
 
             let relay_fee = bitcoin::Amount::ONE_SAT;
             let is_fee = estimate_fee(weight, amount, fee_rate, relay_fee).unwrap();
@@ -1183,8 +1560,8 @@ mod tests {
             let weight = 400;
             let amount = bitcoin::Amount::from_sat(amount);
 
-            let sat_per_vb = 1_000.0;
-            let fee_rate = FeeRate::from_sat_per_vb(sat_per_vb);
+            let sat_per_vb = 1_000;
+            let fee_rate = FeeRate::from_sat_per_vb(sat_per_vb).unwrap();
 
             let relay_fee = bitcoin::Amount::ONE_SAT;
             let is_fee = estimate_fee(weight, amount, fee_rate, relay_fee).unwrap();
@@ -1197,12 +1574,12 @@ mod tests {
     proptest! {
         #[test]
         fn given_fee_above_max_should_always_errors(
-            sat_per_vb in 100_000_000.0f32..,
+            sat_per_vb in 100_000_000u64..,
         ) {
             let weight = 400;
             let amount = bitcoin::Amount::from_sat(547u64);
 
-            let fee_rate = FeeRate::from_sat_per_vb(sat_per_vb);
+            let fee_rate = FeeRate::from_sat_per_vb(sat_per_vb).unwrap();
 
             let relay_fee = bitcoin::Amount::from_sat(1);
             assert!(estimate_fee(weight, amount, fee_rate, relay_fee).is_err());
@@ -1218,7 +1595,7 @@ mod tests {
             let weight = 400;
             let amount = bitcoin::Amount::from_sat(547u64);
 
-            let fee_rate = FeeRate::from_sat_per_vb(1.0);
+            let fee_rate = FeeRate::from_sat_per_vb(1).unwrap();
 
             let relay_fee = bitcoin::Amount::from_sat(relay_fee);
             assert!(estimate_fee(weight, amount, fee_rate, relay_fee).is_err());
@@ -1227,7 +1604,7 @@ mod tests {
 
     #[tokio::test]
     async fn given_no_balance_returns_amount_0() {
-        let wallet = WalletBuilder::new(0).with_fees(1.0, 1).build();
+        let wallet = WalletBuilder::new(0).with_fees(1, 1).build().await;
         let amount = wallet.max_giveable(TxLock::script_size()).await.unwrap();
 
         assert_eq!(amount, Amount::ZERO);
@@ -1235,7 +1612,7 @@ mod tests {
 
     #[tokio::test]
     async fn given_balance_below_min_relay_fee_returns_amount_0() {
-        let wallet = WalletBuilder::new(1000).with_fees(1.0, 1001).build();
+        let wallet = WalletBuilder::new(1000).with_fees(1, 1001).build().await;
         let amount = wallet.max_giveable(TxLock::script_size()).await.unwrap();
 
         assert_eq!(amount, Amount::ZERO);
@@ -1243,7 +1620,7 @@ mod tests {
 
     #[tokio::test]
     async fn given_balance_above_relay_fee_returns_amount_greater_0() {
-        let wallet = WalletBuilder::new(10_000).build();
+        let wallet = WalletBuilder::new(10_000).build().await;
         let amount = wallet.max_giveable(TxLock::script_size()).await.unwrap();
 
         assert!(amount.to_sat() > 0);
@@ -1263,7 +1640,7 @@ mod tests {
         let balance = 2000;
 
         // We don't care about fees in this test, thus use a zero fee rate
-        let wallet = WalletBuilder::new(balance).with_zero_fees().build();
+        let wallet = WalletBuilder::new(balance).with_zero_fees().build().await;
 
         // sorting is only relevant for amounts that have a change output
         // if the change output is below dust it will be dropped by the BDK
@@ -1288,10 +1665,11 @@ mod tests {
 
     #[tokio::test]
     async fn can_override_change_address() {
-        let wallet = WalletBuilder::new(50_000).build();
+        let wallet = WalletBuilder::new(50_000).build().await;
         let custom_change = "bcrt1q08pfqpsyrt7acllzyjm8q5qsz5capvyahm49rw"
-            .parse::<Address>()
-            .unwrap();
+            .parse::<Address<NetworkUnchecked>>()
+            .unwrap()
+            .assume_checked();
 
         let psbt = wallet
             .send_to_address(
@@ -1305,7 +1683,7 @@ mod tests {
 
         match transaction.output.as_slice() {
             [first, change] => {
-                assert_eq!(first.value, 10_000);
+                assert_eq!(first.value, Amount::from_sat(10_000));
                 assert_eq!(change.script_pubkey, custom_change.script_pubkey());
             }
             _ => panic!("expected exactly two outputs"),
@@ -1317,20 +1695,20 @@ mod tests {
         let writer = capture_logs(LevelFilter::DEBUG);
 
         let inner = bitcoin::hashes::sha256d::Hash::all_zeros();
-        let tx = Txid::from_hash(inner);
+        let tx = Txid::from_raw_hash(inner);
         let mut old = None;
-        old = Some(print_status_change(tx, old, ScriptStatus::Unseen));
-        old = Some(print_status_change(tx, old, ScriptStatus::InMempool));
-        old = Some(print_status_change(tx, old, ScriptStatus::InMempool));
-        old = Some(print_status_change(tx, old, ScriptStatus::InMempool));
-        old = Some(print_status_change(tx, old, ScriptStatus::InMempool));
-        old = Some(print_status_change(tx, old, ScriptStatus::InMempool));
-        old = Some(print_status_change(tx, old, ScriptStatus::InMempool));
-        old = Some(print_status_change(tx, old, confs(1)));
-        old = Some(print_status_change(tx, old, confs(2)));
-        old = Some(print_status_change(tx, old, confs(3)));
-        old = Some(print_status_change(tx, old, confs(3)));
-        print_status_change(tx, old, confs(3));
+        old = Some(trace_status_change(tx, old, ScriptStatus::Unseen));
+        old = Some(trace_status_change(tx, old, ScriptStatus::InMempool));
+        old = Some(trace_status_change(tx, old, ScriptStatus::InMempool));
+        old = Some(trace_status_change(tx, old, ScriptStatus::InMempool));
+        old = Some(trace_status_change(tx, old, ScriptStatus::InMempool));
+        old = Some(trace_status_change(tx, old, ScriptStatus::InMempool));
+        old = Some(trace_status_change(tx, old, ScriptStatus::InMempool));
+        old = Some(trace_status_change(tx, old, confs(1)));
+        old = Some(trace_status_change(tx, old, confs(2)));
+        old = Some(trace_status_change(tx, old, confs(3)));
+        old = Some(trace_status_change(tx, old, confs(3)));
+        trace_status_change(tx, old, confs(3));
 
         assert_eq!(
             writer.captured(),
@@ -1349,11 +1727,16 @@ DEBUG swap::bitcoin::wallet: Bitcoin transaction status changed txid=00000000000
 
     proptest::proptest! {
         #[test]
-        fn funding_never_fails_with_insufficient_funds(funding_amount in 3000u32.., num_utxos in 1..5u8, sats_per_vb in 1.0..500.0f32, key in crate::proptest::bitcoin::extended_priv_key(), alice in crate::proptest::ecdsa_fun::point(), bob in crate::proptest::ecdsa_fun::point()) {
+        fn funding_never_fails_with_insufficient_funds(funding_amount in 3000u32.., num_utxos in 1..5u8, sats_per_vb in 1u64..500u64, key in crate::proptest::bitcoin::extended_priv_key(), alice in crate::proptest::ecdsa_fun::point(), bob in crate::proptest::ecdsa_fun::point()) {
             proptest::prop_assume!(alice != bob);
 
             tokio::runtime::Runtime::new().unwrap().block_on(async move {
-                let wallet = WalletBuilder::new(funding_amount as u64).with_key(key).with_num_utxos(num_utxos).with_fees(sats_per_vb, 1000).build();
+                let wallet = WalletBuilder::new(funding_amount as u64)
+                    .with_key(key)
+                    .with_num_utxos(num_utxos)
+                    .with_fees(sats_per_vb, 1000)
+                    .build()
+                    .await;
 
                 let amount = wallet.max_giveable(TxLock::script_size()).await.unwrap();
                 let psbt: PartiallySignedTransaction = TxLock::new(&wallet, amount, PublicKey::from(alice), PublicKey::from(bob), wallet.new_address().await.unwrap()).await.unwrap().into();

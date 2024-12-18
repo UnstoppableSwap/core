@@ -1,0 +1,39 @@
+[package]
+name = "bitcoin-harness"
+version = "0.3.0"
+authors = ["CoBloX Team <team@coblox.tech>"]
+edition = "2018"
+description = "A simple lib to start a bitcoind container, generate blocks and fund addresses"
+license = "MIT"
+
+[dependencies]
+base64 = "0.12.3"
+bitcoin = { version = "0.32", features = ["serde"] }
+bitcoincore-rpc-json = "0.19"
+futures = "0.3.5"
+hex = "0.4.2"
+hmac = "0.12.1"
+jsonrpc_client = { version = "0.7", features = ["reqwest"] }
+rand = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
+serde = "1.0"
+serde_json = "1.0"
+sha2 = "0.10.8"
+testcontainers = "0.15"
+thiserror = "1.0"
+tokio = { version = "1.0", features = ["time"] }
+tracing = "0.1"
+url = "2"
+
+[dev-dependencies]
+bitcoincore-rpc = "0.18.0"
+pretty_env_logger = "0.5.0"
+spectral = "0.6"
+tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }
+
+[features]
+default = []
+test-docker = []
+
+[patch.crates-io]
+jsonrpc_client = { git = "https://github.com/delta1/rust-jsonrpc-client.git", rev = "3b6081697cd616c952acb9c2f02d546357d35506" }

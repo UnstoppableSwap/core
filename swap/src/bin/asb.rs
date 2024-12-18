@@ -40,6 +40,10 @@ const DEFAULT_WALLET_NAME: &str = "asb-wallet";
 
 #[tokio::main]
 pub async fn main() -> Result<()> {
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .map_err(|e| anyhow::anyhow!("failed to install default rustls provider: {:?}", e))?;
+
     let Arguments {
         testnet,
         json,
@@ -153,7 +157,11 @@ pub async fn main() -> Result<()> {
             let namespace = XmrBtcNamespace::from_is_testnet(testnet);
 
             // Initialize Tor client
-            let tor_client = init_tor_client(&config.data.dir).await?.into();
+            let tor_client = if config.tor.register_hidden_service {
+                init_tor_client(&config.data.dir).await?.into()
+            } else {
+                None
+            };
 
             let (mut swarm, onion_addresses) = swarm::asb(
                 &seed,
@@ -363,13 +371,15 @@ async fn init_bitcoin_wallet(
     env_config: swap::env::Config,
 ) -> Result<bitcoin::Wallet> {
     tracing::debug!("Opening Bitcoin wallet");
-    let data_dir = &config.data.dir;
-    let wallet = bitcoin::Wallet::new(
-        config.bitcoin.electrum_rpc_url.clone(),
-        data_dir,
-        seed.derive_extended_private_key(env_config.bitcoin_network)?,
+    let wallet = bitcoin::Wallet::with_sqlite(
+        seed,
+        env_config.bitcoin_network,
+        &config.bitcoin.electrum_rpc_url.as_str(),
+        &config.data.dir,
+        env_config.bitcoin_finality_confirmations,
+        config.bitcoin.target_block as usize,
+        env_config.bitcoin_sync_interval(),
         env_config,
-        config.bitcoin.target_block,
     )
     .await
     .context("Failed to initialize Bitcoin wallet")?;

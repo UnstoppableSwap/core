@@ -460,7 +460,7 @@ async fn next_state(
             event_emitter.emit_swap_progress_event(
                 swap_id,
                 TauriSwapProgressEvent::BtcRefunded {
-                    btc_refund_txid: state4.signed_refund_transaction()?.txid(),
+                    btc_refund_txid: state4.signed_refund_transaction()?.compute_txid(),
                 },
             );
 
