@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - 'staging'
+      - 'trying'
+      - 'master'
+
+jobs:
+  static_analysis:
+    env:
+      RUST_TOOLCHAIN: stable
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+
+      - name: Install ${{ env.RUST_TOOLCHAIN }} toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          override: true
+          components: rustfmt, clippy
+
+      - name: Cache ~/.cargo/bin directory
+        uses: actions/cache@v1
+        with:
+          path: ~/.cargo/bin
+          key: ubuntu-rust-${{ env.RUST_TOOLCHAIN }}-cargo-bin-directory-v1
+
+      - name: Install tomlfmt
+        run: which cargo-tomlfmt || cargo install cargo-tomlfmt
+
+      - name: Check Cargo.toml formatting
+        run: cargo tomlfmt -d -p Cargo.toml
+
+      - name: Check code formatting
+        run: cargo fmt -- --check
+
+      - name: Run clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+  build_test:
+    strategy:
+      matrix:
+        rust_toolchain: [stable, beta]
+        continue_on_error: [false]
+        include:
+          - rust_toolchain: nightly
+            continue_on_error: true
+    continue-on-error: ${{ matrix.continue_on_error }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+
+      - name: Install ${{ matrix.rust_toolchain }} toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: ${{ matrix.rust_toolchain }}
+          override: true
+
+      - name: Cache target directory
+        uses: actions/cache@v1
+        with:
+          path: target
+          key: rust-${{ matrix.rust_toolchain }}-target-directory-${{ hashFiles('Cargo.lock') }}-v1
+
+      - name: Cache ~/.cargo/registry directory
+        uses: actions/cache@v1
+        with:
+          path: ~/.cargo/registry
+          key: rust-${{ matrix.rust_toolchain }}-cargo-registry-directory-${{ hashFiles('Cargo.lock') }}-v1
+
+      - name: Cargo check
+        run: cargo check
+
+      - name: Cargo test
+        run: cargo test --features test-docker
+
+      - name: Cargo doc
+        run: cargo test --doc

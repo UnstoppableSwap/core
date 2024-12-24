@@ -284,7 +284,7 @@ async fn init_test_wallets(
     bitcoind_url: Url,
     monero: &Monero,
     starting_balances: StartingBalances,
-    datadir: &Path,
+    _datadir: &Path,
     electrum_rpc_port: u16,
     seed: &Seed,
     env_config: Config,
@@ -314,13 +314,13 @@ async fn init_test_wallets(
         Url::parse(&input).unwrap()
     };
 
-    let btc_wallet = swap::bitcoin::Wallet::new(
-        electrum_rpc_url,
-        datadir,
-        seed.derive_extended_private_key(env_config.bitcoin_network)
-            .expect("Could not create extended private key from seed"),
-        env_config,
+    let btc_wallet = swap::bitcoin::Wallet::with_sqlite_in_memory(
+        seed,
+        env_config.bitcoin_network,
+        electrum_rpc_url.as_str(),
         1,
+        1,
+        Duration::from_secs(60),
     )
     .await
     .expect("could not init btc wallet");
@@ -956,6 +956,8 @@ async fn init_bitcoind(node_url: Url, spendable_quantity: u32) -> Result<Client>
         .getnewaddress(None, None)
         .await?;
 
+    let reward_address = reward_address.require_network(bitcoind_client.network().await?)?;
+
     bitcoind_client
         .generatetoaddress(101 + spendable_quantity, reward_address.clone())
         .await?;
@@ -977,6 +979,9 @@ pub async fn mint(node_url: Url, address: bitcoin::Address, amount: bitcoin::Amo
         .with_wallet(BITCOIN_TEST_WALLET_NAME)?
         .getnewaddress(None, None)
         .await?;
+
+    let reward_address = reward_address.require_network(bitcoind_client.network().await?)?;
+
     bitcoind_client.generatetoaddress(1, reward_address).await?;
 
     Ok(())

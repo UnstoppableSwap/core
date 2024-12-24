@@ -167,25 +167,25 @@ pub enum TauriSwapProgressEvent {
         #[typeshare(serialized_as = "string")]
         deposit_address: bitcoin::Address,
         #[typeshare(serialized_as = "number")]
-        #[serde(with = "::bitcoin::util::amount::serde::as_sat")]
+        #[serde(with = "::bitcoin::amount::serde::as_sat")]
         max_giveable: bitcoin::Amount,
         #[typeshare(serialized_as = "number")]
-        #[serde(with = "::bitcoin::util::amount::serde::as_sat")]
+        #[serde(with = "::bitcoin::amount::serde::as_sat")]
         min_deposit_until_swap_will_start: bitcoin::Amount,
         #[typeshare(serialized_as = "number")]
-        #[serde(with = "::bitcoin::util::amount::serde::as_sat")]
+        #[serde(with = "::bitcoin::amount::serde::as_sat")]
         max_deposit_until_maximum_amount_is_reached: bitcoin::Amount,
         #[typeshare(serialized_as = "number")]
-        #[serde(with = "::bitcoin::util::amount::serde::as_sat")]
+        #[serde(with = "::bitcoin::amount::serde::as_sat")]
         min_bitcoin_lock_tx_fee: bitcoin::Amount,
         quote: BidQuote,
     },
     SwapSetupInflight {
         #[typeshare(serialized_as = "number")]
-        #[serde(with = "::bitcoin::util::amount::serde::as_sat")]
+        #[serde(with = "::bitcoin::amount::serde::as_sat")]
         btc_lock_amount: bitcoin::Amount,
         #[typeshare(serialized_as = "number")]
-        #[serde(with = "::bitcoin::util::amount::serde::as_sat")]
+        #[serde(with = "::bitcoin::amount::serde::as_sat")]
         btc_tx_lock_fee: bitcoin::Amount,
     },
     BtcLockTxInMempool {
