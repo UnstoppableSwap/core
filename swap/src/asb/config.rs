@@ -201,6 +201,7 @@ pub struct Monero {
 pub struct TorConf {
     pub register_hidden_service: bool,
     pub hidden_service_num_intro_points: u8,
+    pub bridges: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
@@ -220,6 +221,7 @@ impl Default for TorConf {
         Self {
             register_hidden_service: true,
             hidden_service_num_intro_points: 5,
+            bridges: vec![],
         }
     }
 }

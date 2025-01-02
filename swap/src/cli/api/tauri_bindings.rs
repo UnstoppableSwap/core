@@ -279,4 +279,7 @@ pub struct TauriSettings {
     /// The URL of the Electrum RPC server e.g `ssl://bitcoin.com:50001`
     #[typeshare(serialized_as = "string")]
     pub electrum_rpc_url: Option<Url>,
+    /// The URL of the Tor bridges to use.
+    #[typeshare(serialized_as = "Vec<string>")]
+    pub tor_bridges: Option<Vec<String>>,
 }

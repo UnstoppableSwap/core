@@ -306,6 +306,7 @@ async fn initialize_context(
         .with_json(false)
         .with_debug(true)
         .with_tor(true)
+        .with_bridges(settings.tor_bridges.clone().unwrap_or_default())
         .with_tauri(tauri_handle.clone())
         .build()
         .await;

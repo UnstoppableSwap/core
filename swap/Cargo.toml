@@ -13,7 +13,7 @@ tauri = [ "dep:tauri" ]
 
 [dependencies]
 anyhow = "1"
-arti-client = { version = "0.25.0", features = [ "static-sqlite", "tokio", "rustls" ], default-features = false }
+arti-client = { version = "^0.25.0", features = [ "static-sqlite", "tokio", "rustls", "pt-client" ], default-features = false }
 async-compression = { version = "0.3", features = [ "bzip2", "tokio" ] }
 async-trait = "0.1"
 asynchronous-codec = "0.7.0"

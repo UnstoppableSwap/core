@@ -9,6 +9,9 @@ export interface SettingsState {
   /// Whether to fetch fiat prices from the internet
   fetchFiatPrices: boolean;
   fiatCurrency: FiatCurrency;
+
+  /// obsf4 tor bridge to use
+  torBridge: string | null;
 }
 
 export enum FiatCurrency {
@@ -98,6 +101,7 @@ const initialState: SettingsState = {
   theme: Theme.Darker,
   fetchFiatPrices: true,
   fiatCurrency: FiatCurrency.Usd,
+  torBridge: null,
 };
 
 const alertsSlice = createSlice({
@@ -120,6 +124,9 @@ const alertsSlice = createSlice({
     },
     setFiatCurrency(slice, action: PayloadAction<FiatCurrency>) {
       slice.fiatCurrency = action.payload;
+    },
+    setTorBridge(slice, action: PayloadAction<string | null>) {
+      slice.torBridge = action.payload;
     },
     addNode(slice, action: PayloadAction<{ network: Network, type: Blockchain, node: string }>) {
       // Make sure the node is not already in the list
@@ -146,6 +153,7 @@ export const {
   resetSettings,
   setFetchFiatPrices,
   setFiatCurrency,
+  setTorBridge,
 } = alertsSlice.actions;
 
 export default alertsSlice.reducer;

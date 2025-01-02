@@ -217,6 +217,7 @@ export async function initializeContext() {
   const tauriSettings: TauriSettings = {
     electrum_rpc_url: bitcoinNode,
     monero_node_url: moneroNode,
+    tor_bridges: store.getState().settings.torBridge ? [store.getState().settings.torBridge] : null,
   };
 
   logger.info("Initializing context with settings", tauriSettings);

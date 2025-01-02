@@ -27,6 +27,7 @@ import {
   resetSettings,
   setFetchFiatPrices,
   setFiatCurrency,
+  setTorBridge,
 } from "store/features/settingsSlice";
 import {
   addNode,
@@ -86,6 +87,7 @@ export default function SettingsBox() {
                 <MoneroNodeUrlSetting />
                 <FetchFiatPricesSetting />
                 <ThemeSetting />
+                <TorBridgeSetting />
               </TableBody>
             </Table>
           </TableContainer>
@@ -305,6 +307,41 @@ function ThemeSetting() {
             </MenuItem>
           ))}
         </Select>
+      </TableCell>
+    </TableRow>
+  );
+}
+
+/**
+ * A setting that allows you to configure a Tor bridge.
+ */
+function TorBridgeSetting() {
+  const torBridge = useSettings((s) => s.torBridge);
+  const dispatch = useAppDispatch();
+
+  const isValidBridge = (bridge: string) => {
+    if (bridge.length === 0) return true; // empty is valid
+    return bridge.startsWith("obfs4 "); // basic validation - must start with obfs4
+  };
+
+  return (
+    <TableRow>
+      <TableCell>
+        <SettingLabel
+          label="Tor Bridge"
+          tooltip="Configure an obfs4 Tor bridge to use. This can help bypass Tor blocking. Leave empty to use the default Tor network configuration."
+        />
+      </TableCell>
+      <TableCell>
+        <ValidatedTextField
+          value={torBridge || ""}
+          onValidatedChange={(value) => dispatch(setTorBridge(value || null))}
+          placeholder="obfs4 X.X.X.X:YYYY [...]"
+          fullWidth
+          variant="outlined"
+          noErrorWhenEmpty
+          isValid={isValidBridge}
+        />
       </TableCell>
     </TableRow>
   );
