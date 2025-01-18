@@ -1,10 +1,16 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use arti_client::{config::TorClientConfigBuilder, Error, TorClient};
+use arti_client::{
+    config::{BridgeConfigBuilder, TorClientConfigBuilder},
+    Error, TorClient,
+};
 use tor_rtcompat::tokio::TokioRustlsRuntime;
 
-pub async fn init_tor_client(data_dir: &Path) -> Result<Arc<TorClient<TokioRustlsRuntime>>, Error> {
+pub async fn init_tor_client(
+    data_dir: &Path,
+    bridges: Vec<String>,
+) -> Result<Arc<TorClient<TokioRustlsRuntime>>, Error> {
     // We store the Tor state in the data directory
     let data_dir = data_dir.join("tor");
     let state_dir = data_dir.join("state");
@@ -12,9 +18,24 @@ pub async fn init_tor_client(data_dir: &Path) -> Result<Arc<TorClient<TokioRustl
 
     // The client configuration describes how to connect to the Tor network,
     // and what directories to use for storing persistent state.
-    let config = TorClientConfigBuilder::from_directories(state_dir, cache_dir)
+    let mut builder = TorClientConfigBuilder::from_directories(state_dir, cache_dir);
+
+    // Append all known bridges to the configuration
+    for bridge_line in bridges {
+        match bridge_line.parse::<BridgeConfigBuilder>() {
+            Ok(bridge) => {
+                tracing::debug!(%bridge_line, "Using tor bridge");
+                builder.bridges().bridges().push(bridge);
+            }
+            Err(err) => {
+                tracing::error!(%err, %bridge_line, "Could not use tor bridge because we could not parse it")
+            }
+        }
+    }
+
+    let config = builder
         .build()
-        .expect("We initialized the Tor client all required attributes");
+        .expect("We initialized the Tor client with all required attributes");
 
     // Start the Arti client, and let it bootstrap a connection to the Tor network.
     // (This takes a while to gather the necessary directory information.

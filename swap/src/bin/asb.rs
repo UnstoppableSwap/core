@@ -160,7 +160,9 @@ pub async fn main() -> Result<()> {
             let namespace = XmrBtcNamespace::from_is_testnet(testnet);
 
             // Initialize Tor client
-            let tor_client = init_tor_client(&config.data.dir).await?.into();
+            let tor_client = init_tor_client(&config.data.dir, config.tor.bridges.clone())
+                .await?
+                .into();
 
             let (mut swarm, onion_addresses) = swarm::asb(
                 &seed,

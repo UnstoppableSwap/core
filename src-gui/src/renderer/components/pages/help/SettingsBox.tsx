@@ -27,6 +27,8 @@ import {
   resetSettings,
   setFetchFiatPrices,
   setFiatCurrency,
+  setTor,
+  setTorBridge,
 } from "store/features/settingsSlice";
 import {
   addNode,
@@ -44,6 +46,7 @@ import { Theme } from "renderer/components/theme";
 import { Add, ArrowUpward, Delete, Edit, HourglassEmpty } from "@material-ui/icons";
 import { getNetwork } from "store/config";
 import { currencySymbol } from "utils/formatUtils";
+import BridgeRequest from "renderer/components/other/BridgeRequest";
 
 const PLACEHOLDER_ELECTRUM_RPC_URL = "ssl://blockstream.info:700";
 const PLACEHOLDER_MONERO_NODE_URL = "http://xmr-node.cakewallet.com:18081";
@@ -82,6 +85,7 @@ export default function SettingsBox() {
           <TableContainer>
             <Table>
               <TableBody>
+                <TorSettings />
                 <ElectrumRpcUrlSetting />
                 <MoneroNodeUrlSetting />
                 <FetchFiatPricesSetting />
@@ -209,7 +213,7 @@ function ElectrumRpcUrlSetting() {
   return (
     <TableRow>
       <TableCell>
-        <SettingLabel label="Custom Electrum RPC URL" tooltip="This is the URL of the Electrum server that the GUI will connect to. It is used to sync Bitcoin transactions. If you leave this field empty, the GUI will choose from a list of known servers at random." />
+        <SettingLabel label="Custom Electrum RPC URL" tooltip="This is the URL of the Electrum server that the GUI will connect to. It is used to sync Bitcoin transactions. If you leave this field empty, the GUI will choose from a list of known servers at random. Requires a restart to take effect." />
       </TableCell>
       <TableCell>
         <IconButton
@@ -258,7 +262,7 @@ function MoneroNodeUrlSetting() {
   return (
     <TableRow>
       <TableCell>
-        <SettingLabel label="Custom Monero Node URL" tooltip="This is the URL of the Monero node that the GUI will connect to. Ensure the node is listening for RPC connections over HTTP. If you leave this field empty, the GUI will choose from a list of known nodes at random." />
+        <SettingLabel label="Custom Monero Node URL" tooltip="This is the URL of the Monero node that the GUI will connect to. Ensure the node is listening for RPC connections over HTTP. If you leave this field empty, the GUI will choose from a list of known nodes at random. Requires a restart to take effect." />
       </TableCell>
       <TableCell>
         <IconButton
@@ -307,6 +311,79 @@ function ThemeSetting() {
         </Select>
       </TableCell>
     </TableRow>
+  );
+}
+
+/**
+ * A setting that allows you to configure Tor.
+ */
+function TorSettings() {
+  const torBridge = useSettings((s) => s.torBridge);
+  const enableTor = useSettings((s) => s.enableTor);
+  const dispatch = useAppDispatch();
+  const [bridgeDialogOpen, setBridgeDialogOpen] = useState(false);
+
+  const isValidBridge = (bridge: string) => {
+    if (bridge.length === 0) return true; // empty is valid
+    return bridge.startsWith("obfs4 "); // basic validation - must start with obfs4
+  };
+
+  const handleBridgeSubmit = (bridge: string) => {
+    dispatch(setTorBridge(bridge));
+  };
+
+  return (
+    <>
+      <TableRow>
+        <TableCell>
+          <SettingLabel
+            label="Enable Tor"
+            tooltip="Whether to enable the integrated Tor client. Turn this off if on Tails or other tor-integrated systems. Requires a restart to take effect."
+          />
+        </TableCell>
+        <TableCell>
+          <Switch
+            color="primary"
+            checked={enableTor}
+            onChange={(event) => dispatch(setTor(event.currentTarget.checked))}
+          />
+        </TableCell>
+      </TableRow>
+      {enableTor ? <TableRow>
+        <TableCell>
+          <SettingLabel
+            label="Tor Bridge"
+            tooltip="Configure an obfs4 Tor bridge to use. This can help bypass Tor blocking. Leave empty to use the default Tor network configuration. Requires a restart to take effect."
+          />
+        </TableCell>
+        <TableCell>
+          <Box display="flex" alignItems="center" style={{ gap: '8px' }}>
+            <ValidatedTextField
+              value={torBridge || ""}
+              onValidatedChange={(value) => dispatch(setTorBridge(value || null))}
+              placeholder="obfs4 X.X.X.X:YYYY [...]"
+              fullWidth
+              variant="outlined"
+              noErrorWhenEmpty
+              isValid={isValidBridge}
+            />
+            <BridgeRequest
+              open={bridgeDialogOpen}
+              onSubmit={handleBridgeSubmit}
+              onClose={() => setBridgeDialogOpen(false)}
+            />
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={() => setBridgeDialogOpen(true)}
+            >
+              Request Bridge
+            </Button>
+          </Box>
+        </TableCell>
+      </TableRow>
+        : <></>}
+    </>
   );
 }
 

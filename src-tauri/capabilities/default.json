@@ -2,7 +2,9 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for the main window",
-  "windows": ["main"],
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:event:allow-emit",
     "core:event:default",
@@ -12,6 +14,14 @@
     "process:default",
     "cli:allow-cli-matches",
     "updater:default",
-    "process:allow-restart"
+    "process:allow-restart",
+    {
+      "identifier": "http:default",
+      "allow": [
+        {
+          "url": "https://bridges.torproject.org"
+        }
+      ]
+    }
   ]
 }

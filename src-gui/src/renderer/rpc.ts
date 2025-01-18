@@ -59,7 +59,7 @@ export async function fetchSellersAtPresetRendezvousPoints() {
     const response = await listSellersAtRendezvousPoint(rendezvousPoint);
     store.dispatch(discoveredMakersByRendezvous(response.sellers));
 
-    logger.log(`Discovered ${response.sellers.length} sellers at rendezvous point ${rendezvousPoint} during startup fetch`);
+    logger.info(`Discovered ${response.sellers.length} sellers at rendezvous point ${rendezvousPoint} during startup fetch`);
   }),
   );
 }
@@ -217,6 +217,8 @@ export async function initializeContext() {
   const tauriSettings: TauriSettings = {
     electrum_rpc_url: bitcoinNode,
     monero_node_url: moneroNode,
+    enable_tor: store.getState().settings.enableTor,
+    tor_bridges: store.getState().settings.torBridge ? [store.getState().settings.torBridge] : null,
   };
 
   logger.info("Initializing context with settings", tauriSettings);

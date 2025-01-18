@@ -204,6 +204,7 @@ pub struct ContextBuilder {
     debug: bool,
     json: bool,
     tor: bool,
+    bridges: Vec<String>,
     tauri_handle: Option<TauriHandle>,
 }
 
@@ -227,6 +228,7 @@ impl ContextBuilder {
             debug: false,
             json: false,
             tor: false,
+            bridges: vec![],
             tauri_handle: None,
         }
     }
@@ -277,6 +279,12 @@ impl ContextBuilder {
     /// Whether to initialize a Tor client (default false)
     pub fn with_tor(mut self, tor: bool) -> Self {
         self.tor = tor;
+        self
+    }
+
+    // Which bridges to use
+    pub fn with_bridges(mut self, bridges: impl Into<Vec<String>>) -> Self {
+        self.bridges = bridges.into();
         self
     }
 
@@ -395,6 +403,11 @@ impl ContextBuilder {
         };
 
         let initialize_tor_client = async {
+            if !self.tor {
+                tracing::info!("Tor client not enabled, skipping initialization");
+                return Ok(None);
+            }
+
             self.tauri_handle.emit_context_init_progress_event(
                 TauriContextStatusEvent::Initializing(vec![
                     TauriPartialInitProgress::EstablishingTorCircuits(
@@ -403,7 +416,7 @@ impl ContextBuilder {
                 ]),
             );
 
-            let maybe_tor_client = init_tor_client(&data_dir)
+            let maybe_tor_client = init_tor_client(&data_dir, self.bridges)
                 .await
                 .inspect_err(|err| {
                     tracing::warn!(%err, "Failed to create Tor client. We will continue without Tor");

@@ -142,7 +142,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let mut builder = tauri::Builder::default();
+    let mut builder = tauri::Builder::default().plugin(tauri_plugin_http::init());
 
     #[cfg(desktop)]
     {
@@ -305,7 +305,8 @@ async fn initialize_context(
         })
         .with_json(false)
         .with_debug(true)
-        .with_tor(true)
+        .with_tor(settings.enable_tor)
+        .with_bridges(settings.tor_bridges.clone().unwrap_or_default())
         .with_tauri(tauri_handle.clone())
         .build()
         .await;
