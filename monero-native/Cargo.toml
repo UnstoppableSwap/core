@@ -1,0 +1,23 @@
+[package]
+name = "monero-native"
+version = "0.0.1"
+edition = "2021"
+description = "monero_c Rust bindings."
+repository = "https://github.com/MrCyjaneK/monero_c"
+license = "MIT"
+build = "build.rs"
+
+[lib]
+name = "monero_c_rust"
+path = "src/lib.rs"
+crate-type = ["lib", "cdylib"]
+
+[dependencies]
+decimal = "2.1.0"
+mockall = "0.13.0"
+tempfile = "3.13.0"
+thiserror = "2.0.9"
+
+[build-dependencies]
+bindgen = "0.70.1"
+

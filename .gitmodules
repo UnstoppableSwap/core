@@ -1,0 +1,4 @@
+[submodule "monero-native/monero_c"]
+	path = monero-native/monero_c
+	url = https://github.com/MrCyjaneK/monero_c.git
+	branch = rust-develop

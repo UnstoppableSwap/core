@@ -41,7 +41,7 @@ pub enum OutEvent {
 
 #[derive(Debug)]
 pub struct WalletSnapshot {
-    balance: monero_rpc::wallet::GetBalance,
+    balance: monero_c_rust::GetBalance,
     lock_fee: monero::Amount,
 
     // TODO: Consider using the same address for punish and redeem (they are mutually exclusive, so
@@ -537,7 +537,7 @@ pub enum Error {
     },
     #[error("Unlocked balance ({balance}) too low to fulfill swapping {buy}")]
     BalanceTooLow {
-        balance: monero_rpc::wallet::GetBalance,
+        balance: monero_c_rust::GetBalance,
         buy: bitcoin::Amount,
     },
     #[error("Failed to fetch latest rate")]

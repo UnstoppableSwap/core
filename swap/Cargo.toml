@@ -113,6 +113,7 @@ unsigned-varint = { version = "0.8.0", features = [ "codec", "asynchronous_codec
 url = { version = "2", features = [ "serde" ] }
 uuid = { version = "1.9", features = [ "serde", "v4" ] }
 void = "1"
+monero-native = { path = "../monero-native" }
 
 [target.'cfg(not(windows))'.dependencies]
 tokio-tar = "0.3"

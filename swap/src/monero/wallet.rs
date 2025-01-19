@@ -4,47 +4,98 @@ use crate::monero::{
 };
 use ::monero::{Address, Network, PrivateKey, PublicKey};
 use anyhow::{Context, Result};
+use monero_c_rust::{Wallet as NativeWallet, WalletManager};
 use monero_rpc::wallet::{BlockHeight, MoneroWalletRpc as _, Refreshed};
 use monero_rpc::{jsonrpc, wallet};
 use std::future::Future;
 use std::ops::Div;
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
 use tokio::time::Interval;
 use url::Url;
 
+/// Structure here:
+/// Wallet has constructor functions that take a WalletManager and create a new wallet based on:
+/// - a seed
+/// - a wallet name
+
 #[derive(Debug)]
 pub struct Wallet {
-    inner: Mutex<wallet::Client>,
+    manager: Arc<WalletManager>,
+    inner: Mutex<NativeWallet>,
     network: Network,
     name: String,
     main_address: monero::Address,
     sync_interval: Duration,
+    path: PathBuf,
 }
 
 impl Wallet {
     /// Connect to a wallet RPC and load the given wallet by name.
-    pub async fn open_or_create(url: Url, name: String, env_config: Config) -> Result<Self> {
-        let client = wallet::Client::new(url)?;
+    pub async fn open_or_create(
+        manager: Arc<WalletManager>,
+        name: String,
+        env_config: Config,
+    ) -> Result<Self> {
+        // TODO: Make this a configurable path, static for the entire lifetime of the program (data dir)
+        let tempDir = std::env::temp_dir();
+        let path = tempDir.join(name);
 
-        match client.open_wallet(name.clone()).await {
-            Err(error) => {
-                tracing::debug!(%error, "Open wallet response error");
-                client.create_wallet(name.clone(), "English".to_owned()).await.context(
-                    "Unable to create Monero wallet, please ensure that the monero-wallet-rpc is available",
-                )?;
+        if manager.wallet_exists(path)? {
+            match manager.open_wallet(path, "", env_config.monero_network) {
+                Err(error) => {
+                    return Err(error.into());
+                }
+                Ok(wallet) => {
+                    tracing::debug!(monero_wallet_name = %name, "Opened Monero wallet");
 
-                tracing::debug!(monero_wallet_name = %name, "Created Monero wallet");
+                    return Ok(Self {
+                        manager,
+                        inner: Mutex::new(wallet),
+                        network: env_config.monero_network,
+                        name,
+                        main_address: monero::Address::from_str(
+                            wallet.get_address(0, 0)?.as_str(),
+                        )?,
+                        sync_interval: env_config.monero_sync_interval(),
+                        path,
+                    });
+                }
             }
-            Ok(_) => tracing::debug!(monero_wallet_name = %name, "Opened Monero wallet"),
-        }
+        } else {
+            tracing::debug!(monero_wallet_name = %name, "Attempted to open Monero wallet, but it does not exist. We will create it.");
 
-        Self::connect(client, name, env_config).await
+            match manager.create_wallet(path, "English", "", env_config.monero_network) {
+                Err(error) => {
+                    tracing::error!(%error, "Failed to create Monero wallet");
+                    return Err(error.into());
+                }
+                Ok(wallet) => {
+                    tracing::info!(monero_wallet_name = %name, %path, "Created Monero wallet");
+
+                    return Ok(Self {
+                        manager,
+                        inner: Mutex::new(wallet),
+                        network: env_config.monero_network,
+                        name,
+                        main_address: monero::Address::from_str(
+                            wallet.get_address(0, 0)?.as_str(),
+                        )?,
+                        sync_interval: env_config.monero_sync_interval(),
+                        path,
+                    });
+                }
+            }
+        }
     }
 
     /// Connects to a wallet RPC where a wallet is already loaded.
+    // TOOD: This is needed for integration tests
+    /*
     pub async fn connect(client: wallet::Client, name: String, env_config: Config) -> Result<Self> {
         let main_address =
             monero::Address::from_str(client.get_address(0).await?.address.as_str())?;
@@ -57,6 +108,7 @@ impl Wallet {
             sync_interval: env_config.monero_sync_interval(),
         })
     }
+     */
 
     /// Re-open the wallet using the internally stored name.
     pub async fn re_open(&self) -> Result<()> {
@@ -154,7 +206,7 @@ impl Wallet {
                 .inner
                 .lock()
                 .await
-                .sweep_all(self.main_address.to_string())
+                .sweep_all(0, self.main_address.to_string(), true)
                 .await
             {
                 Ok(sweep_all) => {
@@ -277,12 +329,12 @@ impl Wallet {
     }
 
     /// Get the balance of the primary account.
-    pub async fn get_balance(&self) -> Result<wallet::GetBalance> {
-        Ok(self.inner.lock().await.get_balance(0).await?)
+    pub async fn get_balance(&self) -> Result<monero_c_rust::GetBalance> {
+        Ok(self.inner.lock().await.get_balance(0)?)
     }
 
     pub async fn block_height(&self) -> Result<BlockHeight> {
-        Ok(self.inner.lock().await.get_height().await?)
+        Ok(self.manager.get_height()?)
     }
 
     pub fn get_main_address(&self) -> Address {
@@ -327,6 +379,10 @@ impl Wallet {
             tokio::time::sleep(RETRY_INTERVAL).await;
         }
         unreachable!("Loop should have returned by now");
+    }
+
+    pub async fn close_wallet(&self) -> Result<()> {
+        self.inner.lock().await.close_wallet()
     }
 }
 
