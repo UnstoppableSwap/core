@@ -31,7 +31,10 @@ Consider joining the designated [Matrix chat](https://matrix.to/#/%23unstoppable
 
 ### Using Docker
 
-Running the ASB and its required services (Bitcoin node, Monero node, wallet RPC) can be complex to set up manually. We provide a Docker Compose solution that handles all of this automatically. See our [docker-compose repository](https://github.com/UnstoppableSwap/asb-docker-compose) for setup instructions and configuration details.
+Running the ASB and its required services (Bitcoin node, Monero node, wallet RPC) can be complex to set up manually. 
+We provide a Docker Compose solution that handles all of this automatically. 
+See our [docker-compose repository](https://github.com/UnstoppableSwap/asb-docker-compose) for setup instructions and configuration details.
+
 ## ASB Details
 
 The ASB is a long running daemon that acts as the trading partner to the swap CLI.
