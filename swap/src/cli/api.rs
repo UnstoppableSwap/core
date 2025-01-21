@@ -527,14 +527,15 @@ async fn init_bitcoin_wallet(
     env_config: EnvConfig,
     bitcoin_target_block: u16,
 ) -> Result<bitcoin::Wallet> {
-    let wallet_dir = data_dir.join("wallet");
-
-    let wallet = bitcoin::Wallet::new(
-        electrum_rpc_url.clone(),
-        &wallet_dir,
-        seed.derive_extended_private_key(env_config.bitcoin_network)?,
+    let wallet = bitcoin::Wallet::with_sqlite(
+        seed,
+        env_config.bitcoin_network,
+        &electrum_rpc_url.as_str(),
+        &data_dir,
+        env_config.bitcoin_finality_confirmations,
+        bitcoin_target_block as usize,
+        env_config.bitcoin_sync_interval(),
         env_config,
-        bitcoin_target_block,
     )
     .await
     .context("Failed to initialize Bitcoin wallet")?;
