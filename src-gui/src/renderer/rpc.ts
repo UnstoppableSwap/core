@@ -22,6 +22,7 @@ import {
   CheckElectrumNodeArgs,
   CheckElectrumNodeResponse,
   GetMoneroAddressesResponse,
+  TauriBackgroundRefundEvent,
   GetDataDirArgs,
 } from "models/tauriModel";
 import {

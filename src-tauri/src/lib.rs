@@ -12,7 +12,7 @@ use swap::cli::{
             MoneroRecoveryArgs, ResumeSwapArgs, SuspendCurrentSwapArgs, WithdrawBtcArgs,
         },
         tauri_bindings::{TauriContextStatusEvent, TauriEmitter, TauriHandle, TauriSettings},
-        Context, ContextBuilder,
+        Context, ContextBuilder
     },
     command::{Bitcoin, Monero},
 };
@@ -164,6 +164,7 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             get_balance,
             get_monero_addresses,
@@ -225,6 +226,7 @@ tauri_command!(get_logs, GetLogsArgs);
 tauri_command!(list_sellers, ListSellersArgs);
 tauri_command!(cancel_and_refund, CancelAndRefundArgs);
 
+
 // These commands require no arguments
 tauri_command!(get_wallet_descriptor, ExportBitcoinWalletArgs, no_args);
 tauri_command!(suspend_current_swap, SuspendCurrentSwapArgs, no_args);
@@ -264,10 +266,7 @@ async fn get_data_dir(
     args: GetDataDirArgs,
     _: tauri::State<'_, RwLock<State>>,
 ) -> Result<String, String> {
-    Ok(data::data_dir_from(None, args.is_testnet)
-        .to_string_result()?
-        .to_string_lossy()
-        .to_string())
+    Ok(data::data_dir_from(None, args.is_testnet).to_string_result()?.to_string_lossy().to_string())
 }
 
 /// Tauri command to initialize the Context
