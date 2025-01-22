@@ -170,8 +170,8 @@ impl Request for WithdrawBtcArgs {
 #[typeshare]
 #[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ListSellersArgs {
-    #[typeshare(serialized_as = "string")]
-    pub rendezvous_point: Multiaddr,
+    #[typeshare(serialized_as = "Vec<string>")]
+    pub rendezvous_points: Vec<Multiaddr>,
 }
 
 #[typeshare]
@@ -1071,10 +1071,14 @@ pub async fn list_sellers(
     list_sellers: ListSellersArgs,
     context: Arc<Context>,
 ) -> Result<ListSellersResponse> {
-    let ListSellersArgs { rendezvous_point } = list_sellers;
-    let rendezvous_node_peer_id = rendezvous_point
-        .extract_peer_id()
-        .context("Rendezvous node address must contain peer ID")?;
+    let ListSellersArgs { rendezvous_points } = list_sellers;
+    let rendezvous_nodes: Vec<_> = rendezvous_points.iter()
+        .filter_map(|rendezvous_point| {
+            rendezvous_point
+                .split_peer_id()
+                .map(|(peer_id, addr)| (peer_id, addr))
+        })
+        .collect();
 
     let identity = context
         .config
@@ -1084,7 +1088,7 @@ pub async fn list_sellers(
         .derive_libp2p_identity();
 
     let sellers = list_sellers_impl(
-        vec![(rendezvous_node_peer_id, rendezvous_point)],
+        rendezvous_nodes,
         context.config.namespace,
         context.tor_client.clone(),
         identity,

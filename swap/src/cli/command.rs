@@ -4,10 +4,9 @@ use crate::cli::api::request::{
     GetHistoryArgs, ListSellersArgs, MoneroRecoveryArgs, Request, ResumeSwapArgs, StartDaemonArgs,
     WithdrawBtcArgs,
 };
-use crate::cli::api::Context;
 use crate::monero;
 use crate::monero::monero_address;
-use anyhow::Result;
+use anyhow::{Result};
 use libp2p::core::Multiaddr;
 use std::ffi::OsString;
 use std::net::SocketAddr;
@@ -19,7 +18,7 @@ use url::Url;
 use uuid::Uuid;
 
 use super::api::request::GetLogsArgs;
-use super::api::ContextBuilder;
+use super::api::{Context, ContextBuilder};
 
 // See: https://1209k.com/bitcoin-eye/ele.php?chain=btc
 const DEFAULT_ELECTRUM_RPC_URL: &str = "ssl://blockstream.info:700";
@@ -272,8 +271,8 @@ where
                     .build()
                     .await?,
             );
-
-            ListSellersArgs { rendezvous_point }
+            
+            ListSellersArgs { rendezvous_points: vec![rendezvous_point] }
                 .request(context.clone())
                 .await?;
 

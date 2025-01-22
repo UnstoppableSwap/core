@@ -1,6 +1,10 @@
 import { createSlice, PayloadAction } from "@reduxjs/toolkit";
 import { Theme } from "renderer/components/theme";
 
+const DEFAULT_RENDEZVOUS_POINTS = [
+"/dns4/discover.unstoppableswap.net/tcp/8888/p2p/12D3KooWA6cnqJpVnreBVnoro8midDL9Lpzmg8oJPoAGi7YYaamE"
+];
+
 export interface SettingsState {
   /// This is an ordered list of node urls for each network and blockchain
   nodes: Record<Network, Record<Blockchain, string[]>>;
@@ -9,6 +13,9 @@ export interface SettingsState {
   /// Whether to fetch fiat prices from the internet
   fetchFiatPrices: boolean;
   fiatCurrency: FiatCurrency;
+
+  /// List of rendezvous points
+  rendezvousPoints: string[];
 }
 
 export enum FiatCurrency {
@@ -98,6 +105,7 @@ const initialState: SettingsState = {
   theme: Theme.Darker,
   fetchFiatPrices: true,
   fiatCurrency: FiatCurrency.Usd,
+  rendezvousPoints: [],
 };
 
 const alertsSlice = createSlice({
@@ -120,6 +128,12 @@ const alertsSlice = createSlice({
     },
     setFiatCurrency(slice, action: PayloadAction<FiatCurrency>) {
       slice.fiatCurrency = action.payload;
+    },
+    addRendezvousPoint(slice, action: PayloadAction<string>) {
+      slice.rendezvousPoints.push(action.payload);
+    },
+    removeRendezvousPoint(slice, action: PayloadAction<string>) {
+      slice.rendezvousPoints = slice.rendezvousPoints.filter(point => point !== action.payload);
     },
     addNode(slice, action: PayloadAction<{ network: Network, type: Blockchain, node: string }>) {
       // Make sure the node is not already in the list
@@ -146,6 +160,8 @@ export const {
   resetSettings,
   setFetchFiatPrices,
   setFiatCurrency,
+  addRendezvousPoint,
+  removeRendezvousPoint,
 } = alertsSlice.actions;
 
 export default alertsSlice.reducer;

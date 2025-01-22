@@ -5,8 +5,10 @@ import FeedbackInfoBox from "./FeedbackInfoBox";
 import DaemonControlBox from "./DaemonControlBox";
 import SettingsBox from "./SettingsBox";
 import ExportDataBox from "./ExportDataBox";
+import DiscoveryBox from "./DiscoveryBox";
 import { useLocation } from "react-router-dom";
 import { useEffect } from "react";
+
 const useStyles = makeStyles((theme) => ({
   outer: {
     display: "flex",
@@ -31,6 +33,7 @@ export default function HelpPage() {
     <Box className={classes.outer}>
       <FeedbackInfoBox />
       <SettingsBox />
+      <DiscoveryBox />
       <ExportDataBox />
       <DaemonControlBox />
       <ContactInfoBox />
