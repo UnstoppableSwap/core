@@ -1084,11 +1084,11 @@ pub async fn list_sellers(
         .derive_libp2p_identity();
 
     let sellers = list_sellers_impl(
-        rendezvous_node_peer_id,
-        rendezvous_point,
+        vec![(rendezvous_node_peer_id, rendezvous_point)],
         context.config.namespace,
         context.tor_client.clone(),
         identity,
+        Some(context.db.clone()),
     )
     .await?;
 
@@ -1103,6 +1103,12 @@ pub async fn list_sellers(
                     address = %seller.multiaddr.to_string(),
                     "Fetched peer status"
                 );
+
+                // Add the peer as known to the database
+                // This'll allow us to later request a quote again
+                // without having to re-discover the peer at the rendezvous point
+                let (peer_id, address) = seller.multiaddr.split_peer_id().context("Could not split peer ID from multiaddr")?;
+                context.db.insert_address(peer_id, address).await?;
             }
             SellerStatus::Unreachable => {
                 tracing::info!(

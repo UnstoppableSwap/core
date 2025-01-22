@@ -42,11 +42,11 @@ mod tests {
         let expected_seller_2 = setup_asb(rendezvous_peer_id, &rendezvous_address, namespace).await;
 
         let list_sellers = list_sellers(
-            rendezvous_peer_id,
-            rendezvous_address,
+            vec![(rendezvous_peer_id, rendezvous_address)],
             namespace,
             None,
             identity::Keypair::generate_ed25519(),
+            None
         );
         let sellers = tokio::time::timeout(Duration::from_secs(15), list_sellers)
             .await

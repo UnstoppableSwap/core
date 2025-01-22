@@ -1,11 +1,9 @@
 import { invoke as invokeUnsafe } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import {
   BalanceArgs,
   BalanceResponse,
   BuyXmrArgs,
   BuyXmrResponse,
-  TauriLogEvent,
   GetLogsArgs,
   GetLogsResponse,
   GetSwapInfoResponse,
@@ -14,12 +12,8 @@ import {
   ResumeSwapArgs,
   ResumeSwapResponse,
   SuspendCurrentSwapResponse,
-  TauriContextStatusEvent,
-  TauriSwapProgressEventWrapper,
   WithdrawBtcArgs,
   WithdrawBtcResponse,
-  TauriDatabaseStateEvent,
-  TauriTimelockChangeEvent,
   GetSwapInfoArgs,
   ExportBitcoinWalletResponse,
   CheckMoneroNodeArgs,
@@ -28,31 +22,25 @@ import {
   CheckElectrumNodeArgs,
   CheckElectrumNodeResponse,
   GetMoneroAddressesResponse,
-  TauriBackgroundRefundEvent,
   GetDataDirArgs,
 } from "models/tauriModel";
 import {
-  contextStatusEventReceived,
-  receivedCliLog,
-  rpcSetBackgroundRefundState,
   rpcSetBalance,
   rpcSetSwapInfo,
-  timelockChangeEventReceived,
 } from "store/features/rpcSlice";
-import { swapProgressEventReceived } from "store/features/swapSlice";
 import { store } from "./store/storeRenderer";
 import { Maker } from "models/apiModel";
 import { providerToConcatenatedMultiAddr } from "utils/multiAddrUtils";
 import { MoneroRecoveryResponse } from "models/rpcModel";
 import { ListSellersResponse } from "../models/tauriModel";
 import logger from "utils/logger";
-import { getNetwork, getNetworkName, isTestnet } from "store/config";
+import { getNetwork, isTestnet } from "store/config";
 import { Blockchain, Network } from "store/features/settingsSlice";
 import { setStatus } from "store/features/nodesSlice";
 import { discoveredMakersByRendezvous } from "store/features/makersSlice";
 
 export const PRESET_RENDEZVOUS_POINTS = [
-  "/dns4/discover.unstoppableswap.net/tcp/8888/p2p/12D3KooWA6cnqJpVnreBVnoro8midDL9Lpzmg8oJPoAGi7YYaamE",
+  "/dnsaddr/xxmr.cheap/p2p/12D3KooWMk3QyPS8D1d1vpHZoY7y2MnXdPE5yV6iyPvyuj4zcdxT",
 ];
 
 export async function fetchSellersAtPresetRendezvousPoints() {
@@ -60,7 +48,7 @@ export async function fetchSellersAtPresetRendezvousPoints() {
     const response = await listSellersAtRendezvousPoint(rendezvousPoint);
     store.dispatch(discoveredMakersByRendezvous(response.sellers));
 
-    logger.log(`Discovered ${response.sellers.length} sellers at rendezvous point ${rendezvousPoint} during startup fetch`);
+    logger.info(`Discovered ${response.sellers.length} sellers at rendezvous point ${rendezvousPoint} during startup fetch`);
   }),
   );
 }
