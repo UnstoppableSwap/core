@@ -87,9 +87,9 @@ export default function SettingsBox() {
               <TableBody>
                 <ElectrumRpcUrlSetting />
                 <MoneroNodeUrlSetting />
+                <RendezvousPointsSetting />
                 <FetchFiatPricesSetting />
                 <ThemeSetting />
-                <RendezvousPointsSetting />
               </TableBody>
             </Table>
           </TableContainer>
@@ -213,7 +213,7 @@ function ElectrumRpcUrlSetting() {
   return (
     <TableRow>
       <TableCell>
-        <SettingLabel label="Custom Electrum RPC URL" tooltip="This is the URL of the Electrum server that the GUI will connect to. It is used to sync Bitcoin transactions. If you leave this field empty, the GUI will choose from a list of known servers at random." />
+        <SettingLabel label="Electrum Server" tooltip="Edit a list of Electrum servers to use. If left empty, the GUI will choose from a list of known servers at random." />
       </TableCell>
       <TableCell>
         <IconButton
@@ -262,7 +262,7 @@ function MoneroNodeUrlSetting() {
   return (
     <TableRow>
       <TableCell>
-        <SettingLabel label="Custom Monero Node URL" tooltip="This is the URL of the Monero node that the GUI will connect to. Ensure the node is listening for RPC connections over HTTP. If you leave this field empty, the GUI will choose from a list of known nodes at random." />
+        <SettingLabel label="Monero Node" tooltip="Edit a list of Monero nodes to use. If left empty, the GUI will choose from a list of known nodes at random." />
       </TableCell>
       <TableCell>
         <IconButton
@@ -526,7 +526,7 @@ function RendezvousPointsSetting() {
           <Edit />
         </IconButton>
         {tableVisible && (
-          <Dialog open={true} onClose={() => setTableVisible(false)} maxWidth="md" fullWidth>
+          <Dialog open={true} onClose={() => setTableVisible(false)} maxWidth="sm">
             <DialogTitle>Rendezvous Points</DialogTitle>
             <DialogContent>
               <Typography variant="subtitle2">
@@ -537,8 +537,8 @@ function RendezvousPointsSetting() {
                 <Table size="small">
                   <TableHead>
                     <TableRow>
-                      <TableCell style={{ width: '85%' }}>Rendezvous Point</TableCell>
-                      <TableCell style={{ width: '15%' }} align="right">Actions</TableCell>
+                      <TableCell>Rendezvous Point Address</TableCell>
+                      <TableCell align="right">Actions</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
