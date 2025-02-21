@@ -566,7 +566,7 @@ async fn init_monero_wallet(
         .await
         .context("Failed to start monero-wallet-rpc process")?;
 
-    let monero_wallet = monero::Wallet::open_or_create(
+    let monero_wallet = monero::Wallet::connect_to(
         monero_wallet_rpc_process.endpoint(),
         MONERO_BLOCKCHAIN_MONITORING_WALLET_NAME.to_string(),
         env_config,
