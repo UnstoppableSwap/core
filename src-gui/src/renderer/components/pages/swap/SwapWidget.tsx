@@ -16,7 +16,6 @@ import { ChangeEvent, useEffect, useState } from "react";
 import { useAppSelector } from "store/hooks";
 import { satsToBtc } from "utils/conversionUtils";
 import {
-  ListSellersDialogOpenButton,
   MakerSubmitDialogOpenButton,
 } from "../../modal/provider/MakerListDialog";
 import MakerSelect from "../../modal/provider/MakerSelect";
@@ -216,7 +215,6 @@ function HasNoMakersSwapWidget() {
         </Typography>
         <Box>
           <MakerSubmitDialogOpenButton />
-          <ListSellersDialogOpenButton />
         </Box>
       </Box>
     </Alert>

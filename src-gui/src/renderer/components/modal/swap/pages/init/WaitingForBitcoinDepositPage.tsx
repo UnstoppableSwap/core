@@ -57,17 +57,17 @@ export default function WaitingForBtcDepositPage({
                   )}
                 </li>
                 <li>
-                  All Bitcoin sent to this this address will converted into
+                  Bitcoin sent to this this address will converted into
                   Monero at an exchance rate of{" "}
                   <MoneroSatsExchangeRate rate={quote.price} displayMarkup={true} />
                 </li>
                 <li>
-                  The network fee of{" "}
+                  Network fee of{" "}
                   <SatsAmount amount={min_bitcoin_lock_tx_fee} /> will
                   automatically be deducted from the deposited coins
                 </li>
                 <li>
-                  The swap will start automatically as soon as the minimum
+                  Swap will start automatically as soon as the minimum
                   amount is deposited.
                 </li>
                 <li>

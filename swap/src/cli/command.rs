@@ -6,7 +6,7 @@ use crate::cli::api::request::{
 };
 use crate::monero;
 use crate::monero::monero_address;
-use anyhow::{Result};
+use anyhow::Result;
 use libp2p::core::Multiaddr;
 use std::ffi::OsString;
 use std::net::SocketAddr;
@@ -271,10 +271,12 @@ where
                     .build()
                     .await?,
             );
-            
-            ListSellersArgs { rendezvous_points: vec![rendezvous_point] }
-                .request(context.clone())
-                .await?;
+
+            ListSellersArgs {
+                rendezvous_points: vec![rendezvous_point],
+            }
+            .request(context.clone())
+            .await?;
 
             Ok(context)
         }

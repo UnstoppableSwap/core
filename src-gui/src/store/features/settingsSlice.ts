@@ -105,7 +105,7 @@ const initialState: SettingsState = {
   theme: Theme.Darker,
   fetchFiatPrices: true,
   fiatCurrency: FiatCurrency.Usd,
-  rendezvousPoints: [],
+  rendezvousPoints: DEFAULT_RENDEZVOUS_POINTS,
 };
 
 const alertsSlice = createSlice({

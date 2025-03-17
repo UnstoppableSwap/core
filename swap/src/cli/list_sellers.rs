@@ -2,7 +2,7 @@ use crate::network::quote::BidQuote;
 use crate::network::rendezvous::XmrBtcNamespace;
 use crate::network::{quote, swarm};
 use crate::protocol::Database;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use arti_client::TorClient;
 use futures::StreamExt;
 use libp2p::multiaddr::Protocol;
@@ -34,7 +34,7 @@ pub async fn list_sellers(
     maybe_tor_client: Option<Arc<TorClient<TokioRustlsRuntime>>>,
     identity: identity::Keypair,
     db: Option<Arc<dyn Database + Send + Sync>>,
-) -> Result<Vec<Seller>> {
+) -> Result<Vec<SellerStatus>> {
     let behaviour = Behaviour {
         rendezvous: rendezvous::client::Behaviour::new(identity.clone()),
         quote: quote::cli(),
@@ -42,6 +42,7 @@ pub async fn list_sellers(
     };
     let swarm = swarm::cli(identity, maybe_tor_client, behaviour).await?;
 
+    // If a database is passed in: Fetch all peer addresses from the database and fetch quotes from them
     let external_dial_queue = match db {
         Some(db) => {
             let peers = db.get_all_peer_addresses().await?;
@@ -50,12 +51,7 @@ pub async fn list_sellers(
         None => VecDeque::new(),
     };
 
-    let event_loop = EventLoop::new(
-        swarm,
-        rendezvous_points,
-        namespace,
-        external_dial_queue,
-    );
+    let event_loop = EventLoop::new(swarm, rendezvous_points, namespace, external_dial_queue);
     let sellers = event_loop.run().await;
 
     Ok(sellers)
@@ -63,20 +59,35 @@ pub async fn list_sellers(
 
 #[serde_as]
 #[typeshare]
-#[derive(Debug, Serialize, PartialEq, Eq, Hash, Ord, PartialOrd)]
-pub struct Seller {
-    pub status: Status,
+#[derive(Debug, Serialize, PartialEq, Eq, Hash, Clone, Ord, PartialOrd)]
+pub struct QuoteWithAddress {
+    /// The multiaddr of the seller (at which we were able to connect to and get the quote from)
     #[serde_as(as = "DisplayFromStr")]
     #[typeshare(serialized_as = "string")]
     pub multiaddr: Multiaddr,
+
+    /// The peer id of the seller
+    #[typeshare(serialized_as = "string")]
+    pub peer_id: PeerId,
+
+    /// The quote of the seller
+    pub quote: BidQuote,
 }
 
 #[typeshare]
-#[derive(Debug, Serialize, PartialEq, Eq, Hash, Copy, Clone, Ord, PartialOrd)]
+#[derive(Debug, Serialize, PartialEq, Eq, Hash, Clone, Ord, PartialOrd)]
+pub struct UnreachableSeller {
+    /// The peer id of the seller
+    #[typeshare(serialized_as = "string")]
+    pub peer_id: PeerId,
+}
+
+#[typeshare]
+#[derive(Debug, Serialize, PartialEq, Eq, Hash, Clone, Ord, PartialOrd)]
 #[serde(tag = "type", content = "content")]
-pub enum Status {
-    Online(BidQuote),
-    Unreachable,
+pub enum SellerStatus {
+    Online(QuoteWithAddress),
+    Unreachable(UnreachableSeller),
 }
 
 #[allow(unused)]
@@ -110,21 +121,27 @@ struct Behaviour {
 
 #[derive(Debug)]
 enum QuoteStatus {
+    // We have not yet received a quote from the peer
     Pending,
-    Received(Status),
+
+    // We have received a quote from the peer. Or we have received that the peer is unreachable
+    Received(Option<BidQuote>),
 }
 
 #[derive(Debug)]
 enum RendezvousPointStatus {
-    Dialed, // We have initiated dialing but do not know if it succeeded or not
-    Failed, // We have initiated dialing but we failed to connect OR failed to discover
-    Success // We have connected to the rendezvous point and discovered peers
+    Dialed,  // We have initiated dialing but do not know if it succeeded or not
+    Failed,  // We have initiated dialing but we failed to connect OR failed to discover
+    Success, // We have connected to the rendezvous point and discovered peers
 }
 
 impl RendezvousPointStatus {
     // A rendezvous point has been "completed" if it is either successfully dialed or failed
     fn is_complete(&self) -> bool {
-        matches!(self, RendezvousPointStatus::Success | RendezvousPointStatus::Failed)
+        matches!(
+            self,
+            RendezvousPointStatus::Success | RendezvousPointStatus::Failed
+        )
     }
 }
 
@@ -142,9 +159,6 @@ struct EventLoop {
 
     /// The addresses of peers that have been discovered and are reachable
     reachable_asb_address: HashMap<PeerId, Multiaddr>,
-
-    /// The addresses of peers that have been discovered and are unreachable
-    unreachable_asb_address: HashMap<PeerId, Multiaddr>,
 
     /// The status of the quote for each peer
     asb_quote_status: HashMap<PeerId, QuoteStatus>,
@@ -167,18 +181,22 @@ impl EventLoop {
             rendezvous_points,
             namespace,
             reachable_asb_address: Default::default(),
-            unreachable_asb_address: Default::default(),
             asb_quote_status: Default::default(),
             to_request_quote: dial_queue,
         }
     }
 
     fn is_rendezvous_point(&self, peer_id: &PeerId) -> bool {
-        self.rendezvous_points.iter().any(|(rendezvous_peer_id, _)| rendezvous_peer_id == peer_id)
+        self.rendezvous_points
+            .iter()
+            .any(|(rendezvous_peer_id, _)| rendezvous_peer_id == peer_id)
     }
 
     fn get_rendezvous_point(&self, peer_id: &PeerId) -> Option<Multiaddr> {
-        self.rendezvous_points.iter().find(|(rendezvous_peer_id, _)| rendezvous_peer_id == peer_id).map(|(_, multiaddr)| multiaddr.clone())
+        self.rendezvous_points
+            .iter()
+            .find(|(rendezvous_peer_id, _)| rendezvous_peer_id == peer_id)
+            .map(|(_, multiaddr)| multiaddr.clone())
     }
 
     fn ensure_multiaddr_has_p2p_suffix(&self, peer_id: PeerId, multiaddr: Multiaddr) -> Multiaddr {
@@ -193,19 +211,21 @@ impl EventLoop {
         }
     }
 
-    async fn run(mut self) -> Vec<Seller> {
+    async fn run(mut self) -> Vec<SellerStatus> {
         // Dial all rendezvous points initially
         for (peer_id, multiaddr) in &self.rendezvous_points {
             let dial_opts = DialOpts::peer_id(*peer_id)
                 .addresses(vec![multiaddr.clone()])
                 .extend_addresses_through_behaviour()
                 .build();
-            
-            self.rendezvous_points_status.insert(*peer_id, RendezvousPointStatus::Dialed);
+
+            self.rendezvous_points_status
+                .insert(*peer_id, RendezvousPointStatus::Dialed);
 
             if let Err(e) = self.swarm.dial(dial_opts) {
                 tracing::error!(%peer_id, %multiaddr, error = %e, "Failed to dial rendezvous point");
-                self.rendezvous_points_status.insert(*peer_id, RendezvousPointStatus::Failed);
+                self.rendezvous_points_status
+                    .insert(*peer_id, RendezvousPointStatus::Failed);
             }
         }
 
@@ -214,7 +234,7 @@ impl EventLoop {
                 Some((peer_id, multiaddresses)) = async { self.to_request_quote.pop_front() } => {
                     // We do not allow an overlap of rendezvous points and quote requests
                     // because if we do we cannot distinguish between a quote request and a rendezvous point later on
-                    // because we are missing state information to 
+                    // because we are missing state information to
                     if self.is_rendezvous_point(&peer_id) {
                         tracing::warn!(%peer_id, "Skipping quote request for rendezvous point. We do not allow an overlap of rendezvous points and quote requests");
                         continue;
@@ -282,9 +302,7 @@ impl EventLoop {
 
                                     match self.asb_quote_status.entry(peer_id) {
                                         Entry::Occupied(mut entry) => {
-                                            self.unreachable_asb_address.insert(peer_id, Multiaddr::empty());
-                                      
-                                            entry.insert(QuoteStatus::Received(Status::Unreachable));
+                                            entry.insert(QuoteStatus::Received(None));
                                         },
                                         _ => {
                                             tracing::debug!(%peer_id, %error, "Connection error with unexpected peer");
@@ -301,9 +319,9 @@ impl EventLoop {
                             for registration in registrations {
                                 let peer = registration.record.peer_id();
                                 let addresses = registration.record.addresses().into_iter().map(|addr| self.ensure_multiaddr_has_p2p_suffix(peer, addr.clone())).collect::<Vec<_>>();
-                                
+
                                 tracing::info!(%peer, ?addresses, "Discovered peer at rendezvous point");
-                                
+
                                 self.to_request_quote.push_back((peer, addresses));
                             }
 
@@ -318,7 +336,7 @@ impl EventLoop {
                                 request_response::Event::Message { peer, message } => {
                                     match message {
                                         request_response::Message::Response { response, .. } => {
-                                            if self.asb_quote_status.insert(peer, QuoteStatus::Received(Status::Online(response))).is_none() {
+                                            if self.asb_quote_status.insert(peer, QuoteStatus::Received(Some(response))).is_none() {
                                                 tracing::error!(%peer, "Received bid quote from unexpected peer, this record will be removed!");
                                                 self.asb_quote_status.remove(&peer);
                                                 continue;
@@ -336,7 +354,7 @@ impl EventLoop {
                                         tracing::debug!(%peer, "Ignoring seller, because unable to request quote: {:#}", error);
 
                                         // Update the status of the quote to failed
-                                        self.asb_quote_status.insert(peer, QuoteStatus::Received(Status::Unreachable));
+                                        self.asb_quote_status.insert(peer, QuoteStatus::Received(None));
                                     }
                                 }
                                 request_response::Event::InboundFailure { peer, error, .. } => {
@@ -349,8 +367,7 @@ impl EventLoop {
                                         tracing::debug!(%peer, "Ignoring seller, because unable to request quote: {:#}", error);
 
                                         // Update the status of the quote to failed
-                                        self.unreachable_asb_address.insert(peer, Multiaddr::empty());
-                                        self.asb_quote_status.insert(peer, QuoteStatus::Received(Status::Unreachable));
+                                        self.asb_quote_status.insert(peer, QuoteStatus::Received(None));
                                     }
                                 },
                                 request_response::Event::ResponseSent { .. } => unreachable!()
@@ -361,15 +378,20 @@ impl EventLoop {
                 }
             }
 
-
             // We are finished if both of these conditions are true
-            // 1. All rendezvous points have been successfully dialed or failed (all entries peer_ids from rendezvous_points are present in rendezvous_points_status and are not `RendezvousPointStatus::Dialed`)
-            // 2. to_request_quote is empty
-            // 3. All asb_quote_status are `Received`
+            // 1. All rendezvous points have been successfully dialed or failed to dial / discover at namespace
+            // 2. We don't have any pending quote requests
+            // 3. We received quotes OR failed to from all peers we have requested quotes from
 
             // Check if all peer ids from rendezvous_points are present in rendezvous_points_status
             // Check if every entry in rendezvous_points_status is "complete"
-            let all_rendezvous_points_requests_complete = self.rendezvous_points.iter().all(|(peer_id, _)| self.rendezvous_points_status.get(peer_id).map(|status| status.is_complete()).unwrap_or(false));
+            let all_rendezvous_points_requests_complete =
+                self.rendezvous_points.iter().all(|(peer_id, _)| {
+                    self.rendezvous_points_status
+                        .get(peer_id)
+                        .map(|status| status.is_complete())
+                        .unwrap_or(false)
+                });
 
             // Check if to_request_quote is empty
             let all_quotes_fetched = self.to_request_quote.is_empty();
@@ -384,33 +406,22 @@ impl EventLoop {
                 .iter()
                 .map(|(peer_id, quote_status)| match quote_status {
                     QuoteStatus::Pending => Err(StillPending {}),
-                    QuoteStatus::Received(Status::Online(quote)) => {
+                    QuoteStatus::Received(Some(quote)) => {
                         let address = self
                             .reachable_asb_address
                             .get(peer_id)
                             .expect("if we got a quote we must have stored an address");
 
-                        Ok(Seller {
+                        Ok(SellerStatus::Online(QuoteWithAddress {
+                            peer_id: *peer_id,
                             multiaddr: address.clone(),
-                            status: Status::Online(*quote),
-                        })
+                            quote: quote.clone(),
+                        }))
                     }
-                    QuoteStatus::Received(Status::Unreachable) => {
-                        let address = match self
-                            .unreachable_asb_address
-                            .get(peer_id) {
-                                Some(addr) => addr.clone(),
-                                None => {
-                                    tracing::error!(%peer_id, "No address found for unreachable peer");
-                                    Multiaddr::empty()
-                                }
-                            };
-
-
-                        Ok(Seller {
-                            multiaddr: address.clone(),
-                            status: Status::Unreachable,
-                        })
+                    QuoteStatus::Received(None) => {
+                        Ok(SellerStatus::Unreachable(UnreachableSeller {
+                            peer_id: *peer_id,
+                        }))
                     }
                 })
                 .collect::<Result<Vec<_>, _>>();
@@ -444,15 +455,15 @@ mod tests {
         let mut list = vec![
             Seller {
                 multiaddr: "/ip4/127.0.0.1/tcp/1234".parse().unwrap(),
-                status: Status::Unreachable,
+                status: SellerStatus::Unreachable,
             },
             Seller {
                 multiaddr: Multiaddr::empty(),
-                status: Status::Unreachable,
+                status: SellerStatus::Unreachable,
             },
             Seller {
                 multiaddr: "/ip4/127.0.0.1/tcp/5678".parse().unwrap(),
-                status: Status::Online(BidQuote {
+                status: SellerStatus::Online(BidQuote {
                     price: Default::default(),
                     min_quantity: Default::default(),
                     max_quantity: Default::default(),
@@ -467,7 +478,7 @@ mod tests {
             vec![
                 Seller {
                     multiaddr: "/ip4/127.0.0.1/tcp/5678".parse().unwrap(),
-                    status: Status::Online(BidQuote {
+                    status: SellerStatus::Online(BidQuote {
                         price: Default::default(),
                         min_quantity: Default::default(),
                         max_quantity: Default::default(),
@@ -475,11 +486,11 @@ mod tests {
                 },
                 Seller {
                     multiaddr: Multiaddr::empty(),
-                    status: Status::Unreachable
+                    status: SellerStatus::Unreachable
                 },
                 Seller {
                     multiaddr: "/ip4/127.0.0.1/tcp/1234".parse().unwrap(),
-                    status: Status::Unreachable
+                    status: SellerStatus::Unreachable
                 },
             ]
         )

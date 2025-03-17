@@ -2,7 +2,8 @@ use super::tauri_bindings::TauriHandle;
 use crate::bitcoin::{wallet, CancelTimelock, ExpiredTimelocks, PunishTimelock, TxLock};
 use crate::cli::api::tauri_bindings::{TauriEmitter, TauriSwapProgressEvent};
 use crate::cli::api::Context;
-use crate::cli::{list_sellers as list_sellers_impl, EventLoop, Seller, SellerStatus};
+use crate::cli::list_sellers::{QuoteWithAddress, UnreachableSeller};
+use crate::cli::{list_sellers as list_sellers_impl, EventLoop, SellerStatus};
 use crate::common::get_logs;
 use crate::libp2p_ext::MultiAddrExt;
 use crate::monero::wallet_rpc::MoneroDaemon;
@@ -170,6 +171,8 @@ impl Request for WithdrawBtcArgs {
 #[typeshare]
 #[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ListSellersArgs {
+    /// The rendezvous points to search for sellers
+    /// The address must contain a peer ID
     #[typeshare(serialized_as = "Vec<string>")]
     pub rendezvous_points: Vec<Multiaddr>,
 }
@@ -177,7 +180,7 @@ pub struct ListSellersArgs {
 #[typeshare]
 #[derive(Debug, Eq, PartialEq, Serialize)]
 pub struct ListSellersResponse {
-    sellers: Vec<Seller>,
+    sellers: Vec<SellerStatus>,
 }
 
 impl Request for ListSellersArgs {
@@ -1072,7 +1075,8 @@ pub async fn list_sellers(
     context: Arc<Context>,
 ) -> Result<ListSellersResponse> {
     let ListSellersArgs { rendezvous_points } = list_sellers;
-    let rendezvous_nodes: Vec<_> = rendezvous_points.iter()
+    let rendezvous_nodes: Vec<_> = rendezvous_points
+        .iter()
         .filter_map(|rendezvous_point| {
             rendezvous_point
                 .split_peer_id()
@@ -1097,27 +1101,34 @@ pub async fn list_sellers(
     .await?;
 
     for seller in &sellers {
-        match seller.status {
-            SellerStatus::Online(quote) => {
+        match seller {
+            SellerStatus::Online(QuoteWithAddress {
+                quote,
+                multiaddr,
+                peer_id,
+            }) => {
                 tracing::info!(
+                    status = "Online",
                     price = %quote.price.to_string(),
                     min_quantity = %quote.min_quantity.to_string(),
                     max_quantity = %quote.max_quantity.to_string(),
-                    status = "Online",
-                    address = %seller.multiaddr.to_string(),
+                    address = %multiaddr.clone().to_string(),
+                    peer_id = %peer_id,
                     "Fetched peer status"
                 );
 
                 // Add the peer as known to the database
                 // This'll allow us to later request a quote again
                 // without having to re-discover the peer at the rendezvous point
-                let (peer_id, address) = seller.multiaddr.split_peer_id().context("Could not split peer ID from multiaddr")?;
-                context.db.insert_address(peer_id, address).await?;
+                context
+                    .db
+                    .insert_address(peer_id.clone(), multiaddr.clone())
+                    .await?;
             }
-            SellerStatus::Unreachable => {
+            SellerStatus::Unreachable(UnreachableSeller { peer_id }) => {
                 tracing::info!(
                     status = "Unreachable",
-                    address = %seller.multiaddr.to_string(),
+                    peer_id = %peer_id.to_string(),
                     "Fetched peer status"
                 );
             }

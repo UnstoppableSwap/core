@@ -10,14 +10,14 @@ pub mod watcher;
 pub use behaviour::{Behaviour, OutEvent};
 pub use cancel_and_refund::{cancel, cancel_and_refund, refund};
 pub use event_loop::{EventLoop, EventLoopHandle};
-pub use list_sellers::{list_sellers, Seller, Status as SellerStatus};
+pub use list_sellers::{list_sellers, SellerStatus};
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::asb;
     use crate::asb::rendezvous::RendezvousNode;
-    use crate::cli::list_sellers::{Seller, Status};
+    use crate::cli::list_sellers::{Seller, SellerStatus};
     use crate::network::quote;
     use crate::network::quote::BidQuote;
     use crate::network::rendezvous::XmrBtcNamespace;
@@ -46,7 +46,7 @@ mod tests {
             namespace,
             None,
             identity::Keypair::generate_ed25519(),
-            None
+            None,
         );
         let sellers = tokio::time::timeout(Duration::from_secs(15), list_sellers)
             .await
@@ -118,7 +118,7 @@ mod tests {
 
         Seller {
             multiaddr: asb_address.with(Protocol::P2p(asb_peer_id)),
-            status: Status::Online(static_quote),
+            status: SellerStatus::Online(static_quote),
         }
     }
 

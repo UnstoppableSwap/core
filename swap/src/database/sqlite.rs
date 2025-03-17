@@ -198,10 +198,14 @@ impl Database for SqliteDatabase {
             .fetch_all(&self.pool)
             .await?;
 
-        let mut peer_map: std::collections::HashMap<PeerId, Vec<Multiaddr>> = std::collections::HashMap::new();
-        
+        let mut peer_map: std::collections::HashMap<PeerId, Vec<Multiaddr>> =
+            std::collections::HashMap::new();
+
         for row in rows.iter() {
-            match (PeerId::from_str(&row.peer_id), Multiaddr::from_str(&row.address)) {
+            match (
+                PeerId::from_str(&row.peer_id),
+                Multiaddr::from_str(&row.address),
+            ) {
                 (Ok(peer_id), Ok(multiaddr)) => {
                     peer_map.entry(peer_id).or_default().push(multiaddr);
                 }

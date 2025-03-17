@@ -26,12 +26,13 @@ export default function DiscoveryBox() {
   const { enqueueSnackbar } = useSnackbar();
 
   const handleDiscovery = async () => {
-    const response = await listSellersAtRendezvousPoint(rendezvousPoints);
-    dispatch(discoveredMakersByRendezvous(response.sellers));
+    const { sellers } = await listSellersAtRendezvousPoint(rendezvousPoints);
+    dispatch(discoveredMakersByRendezvous(sellers));
 
-    enqueueSnackbar(`Discovered ${response.sellers.length} makers. ${response.sellers.filter((seller) => seller.status.type === "Online").length} of which are online, ${response.sellers.filter((seller) => seller.status.type === "Unreachable").length} of which are unreachable.`, { variant: "success" });
+    const amountOnline = sellers.filter((seller) => seller.type === "Online").length;
+    const amountUnreachable = sellers.filter((seller) => seller.type === "Unreachable").length;
 
-    return response.sellers.length;
+    enqueueSnackbar(`Discovered ${amountOnline + amountUnreachable} makers. ${amountOnline} of which are online, ${amountUnreachable} of which are unreachable.`, { variant: "success" });
   };
 
   return (
