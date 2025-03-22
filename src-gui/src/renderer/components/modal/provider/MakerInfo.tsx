@@ -6,7 +6,7 @@ import {
   MoneroBitcoinExchangeRate,
   SatsAmount,
 } from "renderer/components/other/Units";
-import { getMarkup, satsToBtc, secondsToDays } from "utils/conversionUtils";
+import { calculateFee, satsToBtc, secondsToDays } from "utils/conversionUtils";
 import { isMakerOutdated } from 'utils/multiAddrUtils';
 import WarningIcon from '@material-ui/icons/Warning';
 import { useAppSelector } from "store/hooks";
@@ -41,18 +41,18 @@ const useStyles = makeStyles((theme) => ({
 /**
  * A chip that displays the markup of the maker's exchange rate compared to the market rate.
  */
-function MakerMarkupChip({ maker }: { maker: ExtendedMakerStatus }) {
+function MakerFeeChip({ maker }: { maker: ExtendedMakerStatus }) {
   const marketExchangeRate = useAppSelector(s => s.rates?.xmrBtcRate);
   if (marketExchangeRate == null)
     return null;
 
   const makerExchangeRate = satsToBtc(maker.price);
-  /** The markup of the exchange rate compared to the market rate in percent */
-  const markup = getMarkup(makerExchangeRate, marketExchangeRate);
+  /** The fee of the exchange rate compared to the market rate in percent */
+  const fee = calculateFee(1 / makerExchangeRate, 1 / marketExchangeRate);
 
   return (
-    <Tooltip title="The markup this maker charges compared to centralized markets. A lower markup means that you get more Monero for your Bitcoin.">
-      <Chip label={`Markup ${markup.toFixed(2)}%`} />
+    <Tooltip title="The fee this maker charges compared to centralized markets as a percentage of the maker's exchange rate. A lower fee means that you get more Monero for your Bitcoin.">
+      <Chip label={`Fee ${fee.toFixed(2)}%`} />
     </Tooltip>
   );
 }
@@ -119,7 +119,7 @@ export default function MakerInfo({
             <Chip label="Outdated" icon={<WarningIcon />} color="primary" />
           </Tooltip>
         )}
-        <MakerMarkupChip maker={maker} />
+        <MakerFeeChip maker={maker} />
       </Box>
     </Box >
   );

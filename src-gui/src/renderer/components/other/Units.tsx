@@ -1,6 +1,6 @@
 import { Tooltip } from "@material-ui/core";
 import { useAppSelector } from "store/hooks";
-import { getMarkup, piconerosToXmr, satsToBtc } from "utils/conversionUtils";
+import { calculateFee, piconerosToXmr, satsToBtc } from "utils/conversionUtils";
 
 type Amount = number | null | undefined;
 
@@ -75,14 +75,14 @@ export function MoneroBitcoinExchangeRate({
   displayMarkup?: boolean;
 }) {
   const marketRate = useAppSelector((state) => state.rates?.xmrBtcRate);
-  const markup = (displayMarkup && marketRate != null) ? `${getMarkup(rate, marketRate).toFixed(2)}% markup` : null;
+  const fee = (displayMarkup && marketRate != null) ? `${calculateFee(rate, marketRate).toFixed(2)}% fee` : null;
 
   return (
     <AmountWithUnit
       amount={rate}
       unit="BTC/XMR"
       fixedPrecision={8}
-      parenthesisText={markup}
+      parenthesisText={fee}
     />
   );
 }

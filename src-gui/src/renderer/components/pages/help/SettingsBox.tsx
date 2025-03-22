@@ -82,10 +82,10 @@ export default function SettingsBox() {
           <TableContainer>
             <Table>
               <TableBody>
+                <ThemeSetting />
+                <FetchFiatPricesSetting />
                 <ElectrumRpcUrlSetting />
                 <MoneroNodeUrlSetting />
-                <FetchFiatPricesSetting />
-                <ThemeSetting />
               </TableBody>
             </Table>
           </TableContainer>
@@ -139,7 +139,7 @@ function FetchFiatPricesSetting() {
     <>
       <TableRow>
         <TableCell>
-          <SettingLabel label="Query fiat prices" tooltip="Whether to fetch fiat prices via the clearnet. This is required for the price display to work. If you require total anonymity and don't use a VPN, you should disable this." />
+          <SettingLabel label="Query fiat prices" tooltip="Whether to fetch fiat prices via the clearnet. This is required for the price and fee display. If you require total privacy and don't use a VPN, you should disable this." />
         </TableCell>
         <TableCell>
           <Switch
@@ -209,7 +209,7 @@ function ElectrumRpcUrlSetting() {
   return (
     <TableRow>
       <TableCell>
-        <SettingLabel label="Custom Electrum RPC URL" tooltip="This is the URL of the Electrum server that the GUI will connect to. It is used to sync Bitcoin transactions. If you leave this field empty, the GUI will choose from a list of known servers at random." />
+        <SettingLabel label="Custom Electrum RPC URL" tooltip="This is the url of the Electrum server that the app will connect to. It is used to sync Bitcoin transactions. If you leave this field empty, the app will choose from a list of known servers at random." />
       </TableCell>
       <TableCell>
         <IconButton
@@ -258,7 +258,7 @@ function MoneroNodeUrlSetting() {
   return (
     <TableRow>
       <TableCell>
-        <SettingLabel label="Custom Monero Node URL" tooltip="This is the URL of the Monero node that the GUI will connect to. Ensure the node is listening for RPC connections over HTTP. If you leave this field empty, the GUI will choose from a list of known nodes at random." />
+        <SettingLabel label="Custom Monero Node URL" tooltip="This is the url of the Monero remote node that the app will connect to. If you leave this field empty, the app will choose from a list of known nodes at random." />
       </TableCell>
       <TableCell>
         <IconButton
@@ -289,7 +289,7 @@ function ThemeSetting() {
   return (
     <TableRow>
       <TableCell>
-        <SettingLabel label="Theme" tooltip="This is the theme of the GUI." />
+        <SettingLabel label="Theme" tooltip="This is the color theme of the app." />
       </TableCell>
       <TableCell>
         <Select
@@ -364,16 +364,22 @@ function NodeStatus({ status }: { status: boolean | undefined }) {
 
   switch (status) {
     case true:
-      return <Tooltip title={"This node is available and responding to RPC requests"}>
-        <Circle color={theme.palette.success.dark} />
+      return <Tooltip title={"This node is reachable and responding to our requests"}>
+        <span>
+          <Circle color={theme.palette.success.dark} />
+        </span>
       </Tooltip>;
     case false:
-      return <Tooltip title={"This node is not available or not responding to RPC requests"}>
-        <Circle color={theme.palette.error.dark} />
+      return <Tooltip title={"This node is not reachable or not responding to our requests"}>
+        <span>
+          <Circle color={theme.palette.error.dark} />
+        </span>
       </Tooltip>;
     default:
       return <Tooltip title={"The status of this node is currently unknown"}>
-        <HourglassEmpty />
+        <span>
+          <Circle color={theme.palette.warning.dark} />
+        </span>
       </Tooltip>;
   }
 }
