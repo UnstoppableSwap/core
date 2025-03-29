@@ -22,7 +22,7 @@ use std::convert::{Infallible, TryInto};
 use std::fmt::Debug;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, Mutex};
 use uuid::Uuid;
 
 #[allow(missing_debug_implementations)]
@@ -33,7 +33,7 @@ where
     swarm: libp2p::Swarm<Behaviour<LR>>,
     env_config: env::Config,
     bitcoin_wallet: Arc<bitcoin::Wallet>,
-    monero_wallet: Arc<monero::Wallet>,
+    monero_wallet: Arc<Mutex<monero::Wallet>>,
     db: Arc<dyn Database + Send + Sync>,
     latest_rate: LR,
     min_buy: bitcoin::Amount,
@@ -117,7 +117,7 @@ where
         swarm: Swarm<Behaviour<LR>>,
         env_config: env::Config,
         bitcoin_wallet: Arc<bitcoin::Wallet>,
-        monero_wallet: Arc<monero::Wallet>,
+        monero_wallet: Arc<Mutex<monero::Wallet>>,
         db: Arc<dyn Database + Send + Sync>,
         latest_rate: LR,
         min_buy: bitcoin::Amount,
@@ -214,7 +214,7 @@ where
                                 }
                             };
 
-                            let wallet_snapshot = match WalletSnapshot::capture(&self.bitcoin_wallet, &self.monero_wallet, &self.external_redeem_address, btc).await {
+                            let wallet_snapshot = match WalletSnapshot::capture(&self.bitcoin_wallet, &*self.monero_wallet.lock().await, &self.external_redeem_address, btc).await {
                                 Ok(wallet_snapshot) => wallet_snapshot,
                                 Err(error) => {
                                     tracing::error!("Swap request will be ignored because we were unable to create wallet snapshot for swap: {:#}", error);
@@ -474,7 +474,7 @@ where
             .ask()
             .context("Failed to compute asking price")?;
 
-        let balance = self.monero_wallet.get_balance().await?;
+        let balance = self.monero_wallet.lock().await.get_balance().await?;
 
         // use unlocked monero balance for quote
         let xmr_balance = Amount::from_piconero(balance.unlocked_balance);

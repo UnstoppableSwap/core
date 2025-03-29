@@ -37,7 +37,7 @@ where
             current_state,
             &mut swap.event_loop_handle,
             swap.bitcoin_wallet.as_ref(),
-            swap.monero_wallet.as_ref(),
+            &*swap.monero_wallet.lock().await,
             &swap.env_config,
             rate_service.clone(),
         )
