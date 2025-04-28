@@ -1,5 +1,5 @@
 use crate::asb::{Behaviour, OutEvent, Rate};
-use crate::monero::Amount;
+use crate::monero::{Amount, MONERO_FEE};
 use crate::network::cooperative_xmr_redeem_after_punish::CooperativeXmrRedeemRejectReason;
 use crate::network::cooperative_xmr_redeem_after_punish::Response::{Fullfilled, Rejected};
 use crate::network::quote::BidQuote;
@@ -511,23 +511,11 @@ where
         result
     }
 
-    /// Computes a quote and returns the result wrapped in Arcs.
-    async fn make_quote(
-        &mut self,
-        min_buy: bitcoin::Amount,
-        max_buy: bitcoin::Amount,
-    ) -> Result<Arc<BidQuote>, Arc<anyhow::Error>> {
-        /// This is how long we maximally wait for the wallet lock
-        /// -- else the quote will be out of date and we will return
-        /// an error.
+    /// Returns the unreserved Monero balance
+    /// Meaning the Monero balance that is not reserved for ongoing swaps and can be used for new swaps
+    async fn unreserved_monero_balance(&self) -> Result<Amount, Arc<anyhow::Error>> {
+        /// This is how long we maximally wait to get access to the wallet
         const MAX_WAIT_DURATION: Duration = Duration::from_secs(60);
-
-        let ask_price = self
-            .latest_rate
-            .latest_rate()
-            .map_err(|e| Arc::new(anyhow!(e).context("Failed to get latest rate")))?
-            .ask()
-            .map_err(|e| Arc::new(e.context("Failed to compute asking price")))?;
 
         let balance = timeout(MAX_WAIT_DURATION, self.monero_wallet.lock())
             .await
@@ -535,20 +523,59 @@ where
             .get_balance()
             .await
             .map_err(|e| Arc::new(e.context("Failed to get Monero balance")))?;
-        let xmr_balance = Amount::from_piconero(balance.unlocked_balance);
 
-        let max_bitcoin_for_monero =
-            xmr_balance
-                .max_bitcoin_for_price(ask_price)
-                .ok_or_else(|| {
-                    Arc::new(anyhow!(
-                        "Bitcoin price ({}) x Monero ({}) overflow",
-                        ask_price,
-                        xmr_balance
-                    ))
-                })?;
+        let balance = Amount::from_piconero(balance.unlocked_balance);
 
-        tracing::trace!(%ask_price, %xmr_balance, %max_bitcoin_for_monero, "Computed quote");
+        // From our full balance we need to subtract any Monero that is 'reserved' for ongoing swaps
+        // Those swaps where the Bitcoin has been locked (may be unconfirmed or confirmed) but we haven't locked the Monero yet
+        // This is a naive approach because:
+        // - Suppose we have two UTXOs each 5 XMR
+        // - We have a pending swap for 6 XMR
+        // The code will assume we only have reserved 6 XMR but once we lock the 6 XMR our two outputs will be spent
+        // and it'll take 10 blocks before we can use our new output (4 XMR change) again
+        let reserved: Amount = self
+            .db
+            .all()
+            .await?
+            .iter()
+            .filter_map(|(_, state)| match state {
+                State::Alice(AliceState::BtcLockTransactionSeen { state3 })
+                | State::Alice(AliceState::BtcLocked { state3 }) => Some(state3.xmr + MONERO_FEE),
+                _ => None,
+            })
+            .fold(Amount::ZERO, |acc, amount| acc + amount);
+
+        let free_monero_balance = balance.checked_sub(reserved).unwrap_or(Amount::ZERO);
+
+        Ok(free_monero_balance)
+    }
+
+    /// Computes a quote and returns the result wrapped in Arcs.
+    async fn make_quote(
+        &mut self,
+        min_buy: bitcoin::Amount,
+        max_buy: bitcoin::Amount,
+    ) -> Result<Arc<BidQuote>, Arc<anyhow::Error>> {
+        let ask_price = self
+            .latest_rate
+            .latest_rate()
+            .map_err(|e| Arc::new(anyhow!(e).context("Failed to get latest rate")))?
+            .ask()
+            .map_err(|e| Arc::new(e.context("Failed to compute asking price")))?;
+
+        let unreserved_xmr_balance = self.unreserved_monero_balance().await?;
+
+        let max_bitcoin_for_monero = unreserved_xmr_balance
+            .max_bitcoin_for_price(ask_price)
+            .ok_or_else(|| {
+                Arc::new(anyhow!(
+                    "Bitcoin price ({}) x Monero ({}) overflow",
+                    ask_price,
+                    unreserved_xmr_balance
+                ))
+            })?;
+
+        tracing::trace!(%ask_price, %unreserved_xmr_balance, %max_bitcoin_for_monero, "Computed quote");
 
         if min_buy > max_bitcoin_for_monero {
             tracing::trace!(

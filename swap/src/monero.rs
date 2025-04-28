@@ -9,7 +9,7 @@ pub use wallet::Wallet;
 pub use wallet_rpc::{WalletRpc, WalletRpcProcess};
 
 use crate::bitcoin;
-use anyhow::Result;
+use anyhow::{bail, Result};
 use rand::{CryptoRng, RngCore};
 use rust_decimal::prelude::*;
 use rust_decimal::Decimal;
@@ -164,6 +164,15 @@ impl Amount {
             .ok_or_else(|| OverflowError(amount.to_string()))?;
         Ok(Amount(piconeros))
     }
+
+    /// Subtract but throw an error on underflow.
+    pub fn checked_sub(self, rhs: Amount) -> Result<Self> {
+        if self.0 < rhs.0 {
+            bail!("checked sub would underflow");
+        }
+
+        Ok(Amount::from_piconero(self.0 - rhs.0))
+    }
 }
 
 impl Add for Amount {
@@ -174,7 +183,7 @@ impl Add for Amount {
     }
 }
 
-impl Sub for Amount {
+impl Sub<Amount> for Amount {
     type Output = Amount;
 
     fn sub(self, rhs: Self) -> Self::Output {

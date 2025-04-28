@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- ASB: The maker will take Monero funds needed for ongoing swaps into consideration when making a quote. A warning will be displayed if the Monero funds do not cover all ongoing swaps.
+
 ## [1.0.0-rc.17] - 2025-04-18
 
 - GUI: The user will now be asked to approve the swap offer again before the Bitcoin lock transaction is published. Makers should take care to only assume a swap has been accepted by the taker if the Bitcoin lock transaction is detected (`Advancing state state=bitcoin lock transaction in mempool ...`). Swaps that have been safely aborted will not be displayed in the GUI anymore.
@@ -30,7 +32,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.0.0-rc.12] - 2025-01-14
 
 - GUI: Fixed a bug where the CLI wasn't passed the correct Monero node.
--
 
 ## [1.0.0-rc.11] - 2024-12-22
 
