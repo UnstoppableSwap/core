@@ -13,7 +13,7 @@ use bdk::database::BatchDatabase;
 use ecdsa_fun::adaptor::{Adaptor, HashTranscript};
 use ecdsa_fun::nonce::Deterministic;
 use ecdsa_fun::Signature;
-use monero_rpc::wallet::BlockHeight;
+use monero::BlockHeight;
 use rand::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
@@ -426,8 +426,8 @@ impl State3 {
             public_spend_key: S,
             public_view_key: self.v.public(),
             transfer_proof,
-            conf_target: self.min_monero_confirmations,
-            expected: self.xmr,
+            confirmation_target: self.min_monero_confirmations,
+            expected_amount: self.xmr.into(),
         }
     }
 
@@ -655,24 +655,32 @@ impl State5 {
 
     pub async fn redeem_xmr(
         &self,
-        monero_wallet: &monero::Wallet,
-        wallet_file_name: std::string::String,
+        monero_wallet: &monero::Wallets,
+        swap_id: Uuid,
         monero_receive_address: monero::Address,
     ) -> Result<Vec<TxHash>> {
         let (spend_key, view_key) = self.xmr_keys();
 
-        tracing::info!(%wallet_file_name, "Generating and opening Monero wallet from the extracted keys to redeem the Monero");
+        tracing::info!(%swap_id, "Generating and opening Monero wallet from the extracted keys to redeem the Monero");
 
-        let tx_hashes = monero_wallet
-            .create_from_keys_and_sweep_to(
-                wallet_file_name.clone(),
+        let wallet = monero_wallet
+            .open_swap_wallet(
+                swap_id,
                 spend_key,
                 view_key,
                 self.monero_wallet_restore_blockheight,
-                monero_receive_address,
             )
             .await
-            .context("Failed to redeem Monero")?;
+            .context("Failed to open Monero wallet")?;
+
+        let mut wallet_lock = wallet.lock().await;
+        let tx_hashes = wallet_lock
+            .sweep(&monero_receive_address)
+            .await
+            .context("Failed to sweep Monero")?
+            .into_iter()
+            .map(TxHash)
+            .collect();
 
         Ok(tx_hashes)
     }

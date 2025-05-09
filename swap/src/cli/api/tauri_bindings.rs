@@ -497,7 +497,7 @@ pub struct TauriBackgroundRefundEvent {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TauriSettings {
     /// The URL of the Monero node e.g `http://xmr.node:18081`
-    pub monero_node_url: Option<String>,
+    pub monero_node_url: Url,
     /// The URL of the Electrum RPC server e.g `ssl://bitcoin.com:50001`
     #[typeshare(serialized_as = "string")]
     pub electrum_rpc_url: Option<Url>,

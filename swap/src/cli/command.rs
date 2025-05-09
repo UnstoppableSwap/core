@@ -496,10 +496,10 @@ enum CliCommand {
 #[derive(structopt::StructOpt, Debug)]
 pub struct Monero {
     #[structopt(
-        long = "monero-daemon-address",
-        help = "Specify to connect to a monero daemon of your choice: <host>:<port>"
+        long = "monero-node-address",
+        help = "Specify to connect to a monero node of your choice: <host>:<port>"
     )]
-    pub monero_daemon_address: Option<String>,
+    pub monero_node_address: Url,
 }
 
 #[derive(structopt::StructOpt, Debug)]

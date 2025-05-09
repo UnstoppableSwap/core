@@ -1,0 +1,4 @@
+[submodule "monero"]
+	path = monero-sys/monero
+	url = https://github.com/SNeedlewoods/seraphis_wallet.git
+	branch = x_api_add_new_functions

@@ -171,6 +171,29 @@ impl<'c> Monero {
         Ok(())
     }
 
+    /// Funds a specific wallet address with XMR
+    ///
+    /// This function is useful when you want to fund an address that isn't managed by
+    /// a wallet in the testcontainer setup, like an external wallet address.
+    pub async fn fund_address(&self, address: &str, amount: u64) -> Result<()> {
+        let monerod = &self.monerod;
+
+        // Make sure miner has funds by generating blocks
+        monerod
+            .client()
+            .generateblocks(120, address.to_string())
+            .await?;
+
+        // Mine more blocks to confirm the transaction
+        monerod
+            .client()
+            .generateblocks(10, address.to_string())
+            .await?;
+
+        tracing::info!("Successfully funded address with {} piconero", amount);
+        Ok(())
+    }
+
     pub async fn start_miner(&self) -> Result<()> {
         let miner_wallet = self.wallet("miner")?;
         let miner_address = miner_wallet.address().await?.address;
