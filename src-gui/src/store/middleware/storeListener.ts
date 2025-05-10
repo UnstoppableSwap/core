@@ -18,10 +18,10 @@ export function createMainListeners() {
     effect: async (action) => {
       const status = action.payload;
 
-      // If the context is available, check the bitcoin balance and fetch all swap infos
+      // If the context is available, check the Bitcoin balance and fetch all swap infos
       if (status.type === "Available") {
         logger.debug(
-          "Context is available, checking bitcoin balance and history",
+          "Context is available, checking Bitcoin balance and history",
         );
         await Promise.allSettled([
           checkBitcoinBalance(),

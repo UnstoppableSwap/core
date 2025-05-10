@@ -55,8 +55,7 @@ export async function fetchSellersAtPresetRendezvousPoints() {
     store.dispatch(discoveredMakersByRendezvous(response.sellers));
 
     logger.info(`Discovered ${response.sellers.length} sellers at rendezvous point ${rendezvousPoint} during startup fetch`);
-  }),
-  );
+  }));
 }
 
 async function invoke<ARGS, RESPONSE>(
@@ -73,6 +72,12 @@ async function invokeNoArgs<RESPONSE>(command: string): Promise<RESPONSE> {
 }
 
 export async function checkBitcoinBalance() {
+  // If we are already syncing, don't start a new sync
+  if (Object.values(store.getState().rpc?.state.background ?? {}).some(progress => progress.componentName === "SyncingBitcoinWallet" && progress.progress.type === "Pending")) {
+    console.log("checkBitcoinBalance() was called but we are already syncing Bitcoin, skipping");
+    return;
+  }
+
   const response = await invoke<BalanceArgs, BalanceResponse>("get_balance", {
     force_refresh: true,
   });
