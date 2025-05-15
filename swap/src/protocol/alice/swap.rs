@@ -1,17 +1,19 @@
 //! Run an XMR/BTC swap in the role of Alice.
 //! Alice holds XMR and wishes receive BTC.
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
 use crate::asb::{EventLoopHandle, LatestRate};
 use crate::bitcoin::ExpiredTimelocks;
 use crate::env::Config;
+use crate::monero::wallet::NO_LISTENER;
+use crate::monero::TransferProof;
 use crate::protocol::alice::{AliceState, Swap};
 use crate::{bitcoin, monero};
 use ::bitcoin::consensus::encode::serialize_hex;
 use anyhow::{bail, Context, Result};
 use tokio::select;
-use tokio::sync::Mutex;
 use tokio::time::timeout;
 use uuid::Uuid;
 
@@ -58,7 +60,7 @@ async fn next_state<LR>(
     state: AliceState,
     event_loop_handle: &mut EventLoopHandle,
     bitcoin_wallet: &bitcoin::Wallet,
-    monero_wallet: Arc<Mutex<monero::Wallet>>,
+    monero_wallet: Arc<monero::Wallets>,
     env_config: &Config,
     mut rate_service: LR,
 ) -> Result<AliceState>
@@ -123,42 +125,65 @@ where
                 .with_max_interval(Duration::from_secs(60))
                 .build();
 
-            let transfer_proof = backoff::future::retry_notify(backoff, || async {
-                // We check the status of the Bitcoin lock transaction
-                // If the swap is cancelled, there is no need to lock the Monero funds anymore
-                // because there is no way for the swap to succeed.
-                if !matches!(
-                    state3.expired_timelocks(bitcoin_wallet).await?,
-                    ExpiredTimelocks::None { .. }
-                ) {
-                    return Ok(None);
-                }
+            let transfer_proof = backoff::future::retry_notify(
+                backoff,
+                || async {
+                    // We check the status of the Bitcoin lock transaction
+                    // If the swap is cancelled, there is no need to lock the Monero funds anymore
+                    // because there is no way for the swap to succeed.
+                    if !matches!(
+                        state3.expired_timelocks(bitcoin_wallet).await?,
+                        ExpiredTimelocks::None { .. }
+                    ) {
+                        return Ok(None);
+                    }
 
-                // Record the current monero wallet block height so we don't have to scan from
-                // block 0 for scenarios where we create a refund wallet.
-                let monero_wallet_restore_blockheight = monero_wallet
-                    .lock().await
-                    .block_height()
-                    .await
-                    .context("Failed to get Monero wallet block height")
-                    .map_err(backoff::Error::transient)?;
+                    // Record the current monero wallet block height so we don't have to scan from
+                    // block 0 for scenarios where we create a refund wallet.
+                    let monero_wallet_restore_blockheight = monero_wallet
+                        .blockchain_height()
+                        .await
+                        .context("Failed to get Monero wallet block height")
+                        .map_err(backoff::Error::transient)?;
 
-                // Lock the Monero
-                monero_wallet
-                    .lock().await
-                    .transfer(state3.lock_xmr_transfer_request())
-                    .await
-                    .map(|proof| Some((monero_wallet_restore_blockheight, proof)))
-                    .context("Failed to transfer Monero. Make sure your monero-wallet-rpc is connected to a synced daemon and enough funds are available.")
-                    .map_err(backoff::Error::transient)
-            }, |e, wait_time: Duration| {
-                tracing::warn!(
-                    swap_id = %swap_id,
-                    error = ?e,
-                    "Failed to lock Monero. We will retry in {} seconds",
-                    wait_time.as_secs()
-                )
-            })
+                    let (address, amount) = state3
+                        .lock_xmr_transfer_request()
+                        .address_and_amount(env_config.monero_network);
+
+                    // Lock the Monero
+                    let receipt = monero_wallet
+                        .open_main_wallet()
+                        .await
+                        .context("Failed to open Monero main wallet")?
+                        .transfer(&address, amount)
+                        .await
+                        .map_err(|e| tracing::error!(err=%e, "Failed to lock Monero"))
+                        .ok();
+
+                    let Some(receipt) = receipt else {
+                        return Err(backoff::Error::transient(anyhow::anyhow!(
+                            "Failed to lock Monero"
+                        )));
+                    };
+
+                    Ok(Some((
+                        monero_wallet_restore_blockheight,
+                        TransferProof::new(
+                            monero::TxHash(receipt.txid),
+                            monero::PrivateKey::from_str(&receipt.tx_key)
+                                .expect("tx key to be valid private key"),
+                        ),
+                    )))
+                },
+                |e, wait_time: Duration| {
+                    tracing::warn!(
+                        swap_id = %swap_id,
+                        error = ?e,
+                        "Failed to lock Monero. We will retry in {} seconds",
+                        wait_time.as_secs()
+                    )
+                },
+            )
             .await
             .expect("We should never run out of retries while locking Monero");
 
@@ -188,17 +213,18 @@ where
             state3,
         } => match state3.expired_timelocks(bitcoin_wallet).await? {
             ExpiredTimelocks::None { .. } => {
-                monero::wallet::watch_for_transfer(
-                    monero_wallet.clone(),
-                    state3.lock_xmr_watch_request(transfer_proof.clone(), 1),
-                )
-                .await
-                .with_context(|| {
-                    format!(
-                        "Failed to watch for transfer of XMR in transaction {}",
-                        transfer_proof.tx_hash()
+                monero_wallet
+                    .wait_until_confirmed(
+                        state3.lock_xmr_watch_request(transfer_proof.clone(), 1),
+                        NO_LISTENER, // TODO: Add a listener with status updates
                     )
-                })?;
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "Failed to watch for transfer of XMR in transaction {}",
+                            transfer_proof.tx_hash()
+                        )
+                    })?;
 
                 AliceState::XmrLocked {
                     monero_wallet_restore_blockheight,
@@ -446,7 +472,7 @@ where
                         .refund_xmr(
                             monero_wallet.clone(),
                             monero_wallet_restore_blockheight,
-                            swap_id.to_string(),
+                            swap_id,
                             spend_key,
                             transfer_proof.clone(),
                         )

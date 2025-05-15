@@ -1,5 +1,4 @@
 use crate::asb::{Behaviour, OutEvent, Rate};
-use crate::monero::Amount;
 use crate::network::cooperative_xmr_redeem_after_punish::CooperativeXmrRedeemRejectReason;
 use crate::network::cooperative_xmr_redeem_after_punish::Response::{Fullfilled, Rejected};
 use crate::network::quote::BidQuote;
@@ -23,7 +22,7 @@ use std::convert::{Infallible, TryInto};
 use std::fmt::Debug;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::sync::{mpsc, oneshot};
 use tokio::time::timeout;
 use uuid::Uuid;
 
@@ -45,7 +44,7 @@ where
     swarm: libp2p::Swarm<Behaviour<LR>>,
     env_config: env::Config,
     bitcoin_wallet: Arc<bitcoin::Wallet>,
-    monero_wallet: Arc<Mutex<monero::Wallet>>,
+    monero_wallet: Arc<monero::Wallets>,
     db: Arc<dyn Database + Send + Sync>,
     latest_rate: LR,
     min_buy: bitcoin::Amount,
@@ -132,7 +131,7 @@ where
         swarm: Swarm<Behaviour<LR>>,
         env_config: env::Config,
         bitcoin_wallet: Arc<bitcoin::Wallet>,
-        monero_wallet: Arc<Mutex<monero::Wallet>>,
+        monero_wallet: Arc<monero::Wallets>,
         db: Arc<dyn Database + Send + Sync>,
         latest_rate: LR,
         min_buy: bitcoin::Amount,
@@ -232,7 +231,7 @@ where
                                 }
                             };
 
-                            let wallet_snapshot = match WalletSnapshot::capture(&self.bitcoin_wallet, &*self.monero_wallet.lock().await, &self.external_redeem_address, btc).await {
+                            let wallet_snapshot = match WalletSnapshot::capture(&self.bitcoin_wallet, &self.monero_wallet, &self.external_redeem_address, btc).await {
                                 Ok(wallet_snapshot) => wallet_snapshot,
                                 Err(error) => {
                                     tracing::error!("Swap request will be ignored because we were unable to create wallet snapshot for swap: {:#}", error);
@@ -529,24 +528,26 @@ where
             .ask()
             .map_err(|e| Arc::new(e.context("Failed to compute asking price")))?;
 
-        let balance = timeout(MAX_WAIT_DURATION, self.monero_wallet.lock())
-            .await
-            .context("Timeout while waiting for lock on monero wallet while making quote")?
-            .get_balance()
-            .await
-            .map_err(|e| Arc::new(e.context("Failed to get Monero balance")))?;
-        let xmr_balance = Amount::from_piconero(balance.unlocked_balance);
+        let xmr_balance = timeout(
+            MAX_WAIT_DURATION,
+            self.monero_wallet
+                .open_main_wallet()
+                .await
+                .context("Failed to open main Monero wallet")?
+                .unlocked_balance(),
+        )
+        .await
+        .context("Timeout while waiting for lock on monero wallet while making quote")?;
 
-        let max_bitcoin_for_monero =
-            xmr_balance
-                .max_bitcoin_for_price(ask_price)
-                .ok_or_else(|| {
-                    Arc::new(anyhow!(
-                        "Bitcoin price ({}) x Monero ({}) overflow",
-                        ask_price,
-                        xmr_balance
-                    ))
-                })?;
+        let max_bitcoin_for_monero = monero::Amount::from(xmr_balance)
+            .max_bitcoin_for_price(ask_price)
+            .ok_or_else(|| {
+                Arc::new(anyhow!(
+                    "Bitcoin price ({}) x Monero ({}) overflow",
+                    ask_price,
+                    xmr_balance
+                ))
+            })?;
 
         tracing::trace!(%ask_price, %xmr_balance, %max_bitcoin_for_monero, "Computed quote");
 

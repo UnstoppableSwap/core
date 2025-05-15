@@ -61,12 +61,71 @@ jobs:
         with:
           ref: ${{ github.event.release.target_commitish }}
           token: ${{ secrets.BOTTY_GITHUB_TOKEN }}
+          submodules: recursive
+
+      - name: Set up environment variables
+        uses: ./.github/actions/set-monero-env
+
+      - uses: actionhippie/swap-space@v1
+        if: matrix.os == 'ubuntu-latest'
+        with:
+          size: 15G
 
       - uses: Swatinem/rust-cache@v2.7.3
 
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.80"
+
+      - name: Configure apt for retries
+        if: matrix.os == 'ubuntu-latest'
+        run: ${{ env.APT_SET_CONF_COMMAND }}
+
+      - name: Install dependencies (ubuntu-latest)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt update
+          sudo apt install -y ${{ env.DEPS_TAURI_LINUX }} ${{ env.DEPS_MONERO_LINUX }} git
+
+      - name: Clone submodules
+        run: git submodule update --init --recursive
+
+      - name: Install Monero build dependencies (macOS)
+        if: startsWith(matrix.os, 'macos')
+        run: |
+          brew update
+          brew install ${{ env.DEPS_MONERO_MACOS }} git
+
+      - name: Install Monero build dependencies (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: msys2/setup-msys2@v2
+        with:
+          update: true
+          install: ${{ env.DEPS_MONERO_WINDOWS_MSYS2 }} git
+
+      - name: Clone submodules
+        run: git submodule update --init --recursive
+        
+      - name: Setup ccache (Linux/macOS)
+        if: matrix.os == 'ubuntu-latest' || startsWith(matrix.os, 'macos')
+        run: ${{ env.CCACHE_SETTINGS_COMMAND }}
+
+      - name: Setup ccache (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: msys2 {0}
+        run: ${{ env.CCACHE_SETTINGS_COMMAND }}
+
+      - name: Build Monero (C++) - Linux/macOS
+        if: matrix.os == 'ubuntu-latest' || startsWith(matrix.os, 'macos')
+        working-directory: monero-sys/monero
+        run: make -j4 release
+        shell: bash
+
+      - name: Build Monero (C++) - Windows
+        if: matrix.os == 'windows-latest'
+        working-directory: monero-sys/monero
+        run: make -j4 release
+        shell: msys2 {0}
 
       - name: Cross Build ${{ matrix.target }} ${{ matrix.bin }} binary
         if: matrix.target == 'armv7-unknown-linux-gnueabihf'
@@ -125,7 +184,6 @@ jobs:
           asset_path: ./${{ steps.create-archive-name.outputs.archive }}
           asset_name: ${{ steps.create-archive-name.outputs.archive }}
           asset_content_type: application/gzip
-
   build_and_push_docker:
     name: Build and Push Docker Image
     runs-on: ubuntu-latest
@@ -138,6 +196,25 @@ jobs:
         uses: actions/checkout@v4.1.7
         with:
           ref: ${{ github.event.release.target_commitish }}
+          submodules: recursive
+          
+      - name: Set up environment variables
+        uses: ./.github/actions/set-monero-env
+
+      - uses: actionhippie/swap-space@v1
+        with:
+          size: 15G
+
+      - name: Configure apt for retries
+        run: ${{ env.APT_SET_CONF_COMMAND }}
+
+      - name: Install dependencies (ubuntu-latest)
+        run: |
+          sudo apt update
+          sudo apt install -y ${{ env.DEPS_TAURI_LINUX }} ${{ env.DEPS_MONERO_LINUX }}
+
+      - name: Setup ccache
+        run: ${{ env.CCACHE_SETTINGS_COMMAND }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2

@@ -4,11 +4,13 @@ pub mod wallet_rpc;
 pub use ::monero::network::Network;
 pub use ::monero::{Address, PrivateKey, PublicKey};
 pub use curve25519_dalek::scalar::Scalar;
-use typeshare::typeshare;
-pub use wallet::Wallet;
+pub use wallet::{Daemon, Wallet, Wallets, WatchRequest};
 pub use wallet_rpc::{WalletRpc, WalletRpcProcess};
 
 use crate::bitcoin;
+
+use typeshare::typeshare;
+
 use anyhow::Result;
 use rand::{CryptoRng, RngCore};
 use rust_decimal::prelude::*;
@@ -28,6 +30,18 @@ pub enum network {
     Mainnet,
     Stagenet,
     Testnet,
+}
+
+/// A Monero block height.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct BlockHeight {
+    pub height: u64,
+}
+
+impl fmt::Display for BlockHeight {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.height)
+    }
 }
 
 pub fn private_key_from_secp256k1_scalar(scalar: bitcoin::Scalar) -> PrivateKey {
@@ -86,6 +100,8 @@ impl From<PublicViewKey> for PublicKey {
 #[derive(Clone, Copy, Debug)]
 pub struct PublicViewKey(PublicKey);
 
+/// Our own monero amount type, which we need because the monero crate
+/// doesn't implement Serialize and Deserialize.
 #[derive(Debug, Copy, Clone, Deserialize, Serialize, PartialEq, Eq, PartialOrd)]
 #[typeshare(serialized_as = "number")]
 pub struct Amount(u64);
@@ -193,6 +209,18 @@ impl Mul<u64> for Amount {
 impl From<Amount> for u64 {
     fn from(from: Amount) -> u64 {
         from.0
+    }
+}
+
+impl From<::monero::Amount> for Amount {
+    fn from(from: ::monero::Amount) -> Self {
+        Amount::from_piconero(from.as_pico())
+    }
+}
+
+impl From<Amount> for ::monero::Amount {
+    fn from(from: Amount) -> Self {
+        ::monero::Amount::from_pico(from.as_piconero())
     }
 }
 
