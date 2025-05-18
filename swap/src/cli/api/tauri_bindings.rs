@@ -1,3 +1,4 @@
+use super::request::BalanceResponse;
 use crate::bitcoin;
 use crate::{bitcoin::ExpiredTimelocks, monero, network::quote::BidQuote};
 use anyhow::{anyhow, Context, Result};
@@ -14,74 +15,20 @@ use typeshare::typeshare;
 use url::Url;
 use uuid::Uuid;
 
-use super::request::BalanceResponse;
+/// The name of the Tauri event channel we use to emit events to the frontend.
+///
+/// https://v2.tauri.app/develop/calling-rust/#global-events
+///
+/// We could have a single channel for each type of event but having a single channel is simpler
+/// and offers full type safety.
+///
+/// Only [`TauriEvent`] structs are sent through this channel (Rust -> UI)
+const TAURI_UNIFIED_EVENT_NAME: &str = "tauri-unified-event";
 
-const CLI_LOG_EMITTED_EVENT_NAME: &str = "cli-log-emitted";
-const SWAP_PROGRESS_EVENT_NAME: &str = "swap-progress-update";
-const SWAP_STATE_CHANGE_EVENT_NAME: &str = "swap-database-state-update";
-const TIMELOCK_CHANGE_EVENT_NAME: &str = "timelock-change";
-const CONTEXT_INIT_PROGRESS_EVENT_NAME: &str = "context-init-progress-update";
-const BALANCE_CHANGE_EVENT_NAME: &str = "balance-change";
-const BACKGROUND_REFUND_EVENT_NAME: &str = "background-refund";
-const APPROVAL_EVENT_NAME: &str = "approval_event";
-
-#[typeshare]
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct LockBitcoinDetails {
-    #[typeshare(serialized_as = "number")]
-    #[serde(with = "::bitcoin::util::amount::serde::as_sat")]
-    pub btc_lock_amount: bitcoin::Amount,
-    #[typeshare(serialized_as = "number")]
-    #[serde(with = "::bitcoin::util::amount::serde::as_sat")]
-    pub btc_network_fee: bitcoin::Amount,
-    #[typeshare(serialized_as = "number")]
-    pub xmr_receive_amount: monero::Amount,
-    #[typeshare(serialized_as = "string")]
-    pub swap_id: Uuid,
-}
-
-#[typeshare]
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(tag = "type", content = "content")]
-pub enum ApprovalRequestDetails {
-    /// Request approval before locking Bitcoin.
-    /// Contains specific details for review.
-    LockBitcoin(LockBitcoinDetails),
-}
-
-#[typeshare]
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(tag = "state", content = "content")]
-pub enum ApprovalRequest {
-    Pending {
-        request_id: String,
-        #[typeshare(serialized_as = "number")]
-        expiration_ts: u64,
-        details: ApprovalRequestDetails,
-    },
-    Resolved {
-        request_id: String,
-        details: ApprovalRequestDetails,
-    },
-    Rejected {
-        request_id: String,
-        details: ApprovalRequestDetails,
-    },
-}
-
-struct PendingApproval {
-    responder: Option<oneshot::Sender<bool>>,
-    details: ApprovalRequestDetails,
-    #[allow(dead_code)]
-    expiration_ts: u64,
-}
-
-#[cfg(feature = "tauri")]
-struct TauriHandleInner {
-    app_handle: tauri::AppHandle,
-    pending_approvals: TokioMutex<HashMap<Uuid, PendingApproval>>,
-}
-
+/// A handle to Tauri
+/// We pass an Option<TauriHandle> around the entire codebase.
+///
+/// If the feature is disabled, the struct is a no-op.
 #[derive(Clone)]
 pub struct TauriHandle(
     #[cfg(feature = "tauri")]
@@ -89,9 +36,47 @@ pub struct TauriHandle(
     Arc<TauriHandleInner>,
 );
 
+/// The inner struct that contains the actual Tauri handle.
+/// Also contains some states that are used to track the approval requests.
+#[cfg(feature = "tauri")]
+struct TauriHandleInner {
+    app_handle: tauri::AppHandle,
+    pending_approvals: TokioMutex<HashMap<Uuid, PendingApproval>>,
+}
+
+/// Arguments needed to construct a [`Context`](crate::cli::api::Context)
+/// These are settings the user can configure in the GUI. They are saved in the frontends local storage.
+/// On startup, the frontend call [`initialize_context`](src-tauri/src/lib.rs) with this struct.
+#[typeshare]
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TauriSettings {
+    /// The URL of the Monero node e.g `http://xmr.node:18081`
+    pub monero_node_url: Option<String>,
+    /// The URL of the Electrum RPC server e.g `ssl://bitcoin.com:50001`
+    #[typeshare(serialized_as = "string")]
+    pub electrum_rpc_url: Option<Url>,
+    /// Whether to initialize and use a tor client.
+    pub use_tor: bool,
+}
+
+/// The status of the global [`Context`](crate::cli::api::Context)
+#[typeshare]
+#[derive(Display, Clone, Serialize)]
+pub enum TauriContextStatusEvent {
+    NotInitialized,
+    Initializing,
+    Available,
+    Failed,
+}
+
 impl TauriHandle {
+    /// Create a new Tauri handle, that actually has access to the Tauri API.
+    ///
+    /// This is only available if the `tauri` feature is enabled.
     #[cfg(feature = "tauri")]
     pub fn new(tauri_handle: tauri::AppHandle) -> Self {
+        use std::collections::HashMap;
+
         Self(
             #[cfg(feature = "tauri")]
             Arc::new(TauriHandleInner {
@@ -101,6 +86,10 @@ impl TauriHandle {
         )
     }
 
+    /// Emit a Tauri event.
+    ///
+    /// If `tauri` feature is disabled, this method will do nothing.
+    /// and simply return `Ok(())`.
     #[allow(unused_variables)]
     pub fn emit_tauri_event<S: Serialize + Clone>(&self, event: &str, payload: S) -> Result<()> {
         #[cfg(feature = "tauri")]
@@ -113,10 +102,21 @@ impl TauriHandle {
     }
 
     /// Helper to emit a approval event via the unified event name
-    fn emit_approval(&self, event: ApprovalRequest) -> Result<()> {
-        self.emit_tauri_event(APPROVAL_EVENT_NAME, event)
+    fn emit_approval(&self, event: ApprovalRequest) {
+        self.emit_unified_event(TauriEvent::Approval(event))
     }
 
+    /// Request approval for a specific action from the user.
+    ///
+    /// This will emit a [`TauriEvent::Approval`] event to the frontend.
+    /// If the user approves, the frontend will call [`TauriHandle::resolve_approval`] to resolve the approval request.
+    ///
+    /// The frontend will then show a dialog to the user, asking them to approve or reject the request.
+    /// If the timeout is reached, the request will be rejected automatically.
+    ///
+    /// Returns `true` if the user approved the request, `false` if the request was rejected or timed out.
+    ///
+    /// IMPORTANT: If the `tauri` feature is disabled, we will accept ALL requests automatically.
     pub async fn request_approval(
         &self,
         request_type: ApprovalRequestDetails,
@@ -146,7 +146,7 @@ impl TauriHandle {
             };
 
             // Emit the creation of the approval request to the frontend
-            self.emit_approval(pending_event.clone())?;
+            self.emit_approval(pending_event.clone());
 
             tracing::debug!(%request_id, request=?pending_event, "Emitted approval request event");
 
@@ -176,6 +176,11 @@ impl TauriHandle {
                 },
             };
 
+            // We have decided if the request was accepted or rejected, based on either:
+            // - The user resolving the request
+            // - The request timing out
+            //
+            // Now we need to remove the request from the pending map and inform the frontend about the result.
             let mut map = self.0.pending_approvals.lock().await;
             if let Some(pending) = map.remove(&request_id) {
                 let event = if accepted {
@@ -190,7 +195,7 @@ impl TauriHandle {
                     }
                 };
 
-                self.emit_approval(event)?;
+                self.emit_approval(event);
                 tracing::debug!(%request_id, %accepted, "Resolved approval request");
             }
 
@@ -198,6 +203,11 @@ impl TauriHandle {
         }
     }
 
+    /// Resolve an approval request.
+    ///
+    /// This will resolve the approval request with the given `request_id` to the given `accepted` state.
+    ///
+    /// If the `tauri` feature is disabled, this method will return an error.
     pub async fn resolve_approval(&self, request_id: Uuid, accepted: bool) -> Result<()> {
         #[cfg(not(feature = "tauri"))]
         {
@@ -236,52 +246,61 @@ pub trait TauriEmitter {
 
     fn emit_tauri_event<S: Serialize + Clone>(&self, event: &str, payload: S) -> Result<()>;
 
+    fn emit_unified_event(&self, event: TauriEvent) {
+        let _ = self.emit_tauri_event(TAURI_UNIFIED_EVENT_NAME, event);
+    }
+
     fn emit_swap_progress_event(&self, swap_id: Uuid, event: TauriSwapProgressEvent) {
-        let _ = self.emit_tauri_event(
-            SWAP_PROGRESS_EVENT_NAME,
-            TauriSwapProgressEventWrapper { swap_id, event },
-        );
+        self.emit_unified_event(TauriEvent::SwapProgress(TauriSwapProgressEventWrapper {
+            swap_id,
+            event,
+        }));
     }
 
     fn emit_context_init_progress_event(&self, event: TauriContextStatusEvent) {
-        let _ = self.emit_tauri_event(CONTEXT_INIT_PROGRESS_EVENT_NAME, event);
+        self.emit_unified_event(TauriEvent::ContextInitProgress(event));
     }
 
     fn emit_cli_log_event(&self, event: TauriLogEvent) {
-        let _ = self
-            .emit_tauri_event(CLI_LOG_EMITTED_EVENT_NAME, event)
-            .ok();
+        self.emit_unified_event(TauriEvent::CliLog(event));
     }
 
     fn emit_swap_state_change_event(&self, swap_id: Uuid) {
-        let _ = self.emit_tauri_event(
-            SWAP_STATE_CHANGE_EVENT_NAME,
+        self.emit_unified_event(TauriEvent::SwapDatabaseStateUpdate(
             TauriDatabaseStateEvent { swap_id },
-        );
+        ));
     }
 
     fn emit_timelock_change_event(&self, swap_id: Uuid, timelock: Option<ExpiredTimelocks>) {
-        let _ = self.emit_tauri_event(
-            TIMELOCK_CHANGE_EVENT_NAME,
-            TauriTimelockChangeEvent { swap_id, timelock },
-        );
+        self.emit_unified_event(TauriEvent::TimelockChange(TauriTimelockChangeEvent {
+            swap_id,
+            timelock,
+        }));
     }
 
     fn emit_balance_update_event(&self, new_balance: bitcoin::Amount) {
-        let _ = self.emit_tauri_event(
-            BALANCE_CHANGE_EVENT_NAME,
-            BalanceResponse {
-                balance: new_balance,
-            },
-        );
+        self.emit_unified_event(TauriEvent::BalanceChange(BalanceResponse {
+            balance: new_balance,
+        }));
     }
 
-    fn emit_background_refund_event(&self, swap_id: Uuid, state: BackgroundRefundState) {
-        let _ = self.emit_tauri_event(
-            BACKGROUND_REFUND_EVENT_NAME,
-            TauriBackgroundRefundEvent { swap_id, state },
-        );
+    fn emit_background_progress(&self, id: Uuid, event: TauriBackgroundProgress) {
+        self.emit_unified_event(TauriEvent::BackgroundProgress(
+            TauriBackgroundProgressWrapper { id, event },
+        ));
     }
+
+    /// Create a new background progress handle for tracking a specific type of progress
+    fn new_background_process<T: Clone>(
+        &self,
+        component: fn(PendingCompleted<T>) -> TauriBackgroundProgress,
+    ) -> TauriBackgroundProgressHandle<T>;
+
+    fn new_background_process_with_initial_progress<T: Clone>(
+        &self,
+        component: fn(PendingCompleted<T>) -> TauriBackgroundProgress,
+        initial_progress: T,
+    ) -> TauriBackgroundProgressHandle<T>;
 }
 
 impl TauriEmitter for TauriHandle {
@@ -300,9 +319,38 @@ impl TauriEmitter for TauriHandle {
     fn emit_tauri_event<S: Serialize + Clone>(&self, event: &str, payload: S) -> Result<()> {
         self.emit_tauri_event(event, payload)
     }
+
+    fn new_background_process<T: Clone>(
+        &self,
+        component: fn(PendingCompleted<T>) -> TauriBackgroundProgress,
+    ) -> TauriBackgroundProgressHandle<T> {
+        let id = Uuid::new_v4();
+
+        TauriBackgroundProgressHandle {
+            id,
+            component,
+            emitter: Some(self.clone()),
+            is_finished: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        }
+    }
+
+    fn new_background_process_with_initial_progress<T: Clone>(
+        &self,
+        component: fn(PendingCompleted<T>) -> TauriBackgroundProgress,
+        initial_progress: T,
+    ) -> TauriBackgroundProgressHandle<T> {
+        let background_process_handle = self.new_background_process(component);
+        background_process_handle.update(initial_progress);
+        background_process_handle
+    }
 }
 
+// We implement the TauriEmitter trait for Option<TauriHandle>
+// but we simply swallow outgoing events and accept all approval requests automatically.
 impl TauriEmitter for Option<TauriHandle> {
+    /// Emit a Tauri event.
+    ///
+    /// If we don't have a Tauri handle, and Self is `None`, this is a no-op.
     fn emit_tauri_event<S: Serialize + Clone>(&self, event: &str, payload: S) -> Result<()> {
         match self {
             Some(tauri) => tauri.emit_tauri_event(event, payload),
@@ -312,6 +360,11 @@ impl TauriEmitter for Option<TauriHandle> {
         }
     }
 
+    /// Request approval for a specific action from the user.
+    ///
+    /// Important: If we don't have a Tauri handle, and Self is `None`, we will accept ALL requests automatically.
+    ///
+    /// See: [`TauriHandle::request_approval`] for more details.
     fn request_approval<'life0, 'async_trait>(
         &'life0 self,
         request_type: ApprovalRequestDetails,
@@ -327,6 +380,190 @@ impl TauriEmitter for Option<TauriHandle> {
                 None => Ok(true),
             }
         })
+    }
+
+    fn new_background_process<T: Clone>(
+        &self,
+        component: fn(PendingCompleted<T>) -> TauriBackgroundProgress,
+    ) -> TauriBackgroundProgressHandle<T> {
+        let id = Uuid::new_v4();
+
+        TauriBackgroundProgressHandle {
+            id,
+            component,
+            emitter: self.clone(),
+            is_finished: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        }
+    }
+
+    fn new_background_process_with_initial_progress<T: Clone>(
+        &self,
+        component: fn(PendingCompleted<T>) -> TauriBackgroundProgress,
+        initial_progress: T,
+    ) -> TauriBackgroundProgressHandle<T> {
+        let background_process_handle = self.new_background_process(component);
+        background_process_handle.update(initial_progress);
+        background_process_handle
+    }
+}
+
+/// The different types of events that can be emitted (Rust -> UI)
+/// We put them in a single enum to allow for:
+/// 1. Type safety
+/// 2. A single unified event channel
+#[typeshare]
+#[derive(Clone, Serialize)]
+#[serde(tag = "channelName", content = "event")]
+pub enum TauriEvent {
+    SwapProgress(TauriSwapProgressEventWrapper),
+    ContextInitProgress(TauriContextStatusEvent),
+    CliLog(TauriLogEvent),
+    BalanceChange(BalanceResponse),
+    SwapDatabaseStateUpdate(TauriDatabaseStateEvent),
+    TimelockChange(TauriTimelockChangeEvent),
+    Approval(ApprovalRequest),
+    BackgroundProgress(TauriBackgroundProgressWrapper),
+}
+
+/// When a:
+/// - A swap is started
+/// - We have negotiated an offer with the maker
+/// - We have our signed Bitcoin lock ready to broadcast
+///
+/// We show a final confirmation dialog to the user, asking them to confirm the swap.
+/// Once confirmed, we broadcast the Bitcoin lock transaction.
+///
+/// This struct contains the details of the swap that the user needs to confirm.
+#[typeshare]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct LockBitcoinDetails {
+    #[typeshare(serialized_as = "number")]
+    #[serde(with = "::bitcoin::amount::serde::as_sat")]
+    pub btc_lock_amount: bitcoin::Amount,
+    #[typeshare(serialized_as = "number")]
+    #[serde(with = "::bitcoin::amount::serde::as_sat")]
+    pub btc_network_fee: bitcoin::Amount,
+    #[typeshare(serialized_as = "number")]
+    pub xmr_receive_amount: monero::Amount,
+    #[typeshare(serialized_as = "string")]
+    pub swap_id: Uuid,
+}
+
+/// We put the approval requests in a single enum to allow for:
+/// 1. Type safety
+/// 2. A single unified event channel
+#[typeshare]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "type", content = "content")]
+pub enum ApprovalRequestDetails {
+    /// Request approval before locking Bitcoin.
+    /// Contains specific details for review.
+    LockBitcoin(LockBitcoinDetails),
+}
+
+/// Gives context about the state of an approval request
+#[typeshare]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "state", content = "content")]
+pub enum ApprovalRequest {
+    Pending {
+        request_id: String,
+        #[typeshare(serialized_as = "number")]
+        expiration_ts: u64,
+        details: ApprovalRequestDetails,
+    },
+    Resolved {
+        request_id: String,
+        details: ApprovalRequestDetails,
+    },
+    Rejected {
+        request_id: String,
+        details: ApprovalRequestDetails,
+    },
+}
+
+/// Represents a pending approval request
+/// that hasn't resolved yet.
+struct PendingApproval {
+    /// A sender that we can use to resolve the approval request.
+    /// When we send a [`bool`] in here, the future of the [`request_approval`] method will resolve to that value
+    /// and an event will be emitted to the frontend.
+    responder: Option<oneshot::Sender<bool>>,
+    details: ApprovalRequestDetails,
+
+    /// The absolute timestamp when the approval request will expire.
+    #[allow(dead_code)]
+    expiration_ts: u64,
+}
+
+/// A handle for updating a specific background process's progress
+///
+/// # Examples
+///
+/// ```
+/// // For Tor bootstrap progress
+/// use self::{TauriHandle, TauriBackgroundProgress, TorBootstrapStatus};
+///
+/// // In a real scenario, tauri_handle would be properly initialized.
+/// // For this example, we'll use Option<TauriHandle>::None,
+/// // which allows calling new_background_process.
+/// let tauri_handle: Option<TauriHandle> = None;
+///
+/// let tor_progress = tauri_handle.new_background_process(
+///     |status| TauriBackgroundProgress::EstablishingTorCircuits(status)
+/// );
+///
+/// // Define a sample TorBootstrapStatus
+/// let tor_status = TorBootstrapStatus {
+///     frac: 0.5,
+///     ready_for_traffic: false,
+///     blockage: None,
+/// };
+///
+/// tor_progress.update(tor_status);
+/// tor_progress.finish();
+/// ```
+#[derive(Clone)]
+pub struct TauriBackgroundProgressHandle<T: Clone> {
+    id: Uuid,
+    component: fn(PendingCompleted<T>) -> TauriBackgroundProgress,
+    emitter: Option<TauriHandle>,
+    is_finished: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl<T: Clone> TauriBackgroundProgressHandle<T> {
+    /// Update the progress of this background process
+    /// Updates after finish() has been called will be ignored
+    pub fn update(&self, progress: T) {
+        if self.is_finished.load(std::sync::atomic::Ordering::Relaxed) {
+            tracing::trace!(%self.id, "Ignoring update to background progress because it has already been finished");
+            return;
+        }
+
+        if let Some(emitter) = &self.emitter {
+            emitter.emit_background_progress(
+                self.id,
+                (self.component)(PendingCompleted::Pending(progress)),
+            );
+        }
+    }
+
+    /// Mark this background process as completed
+    /// All subsequent update() calls will be ignored
+    pub fn finish(&self) {
+        self.is_finished
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+
+        if let Some(emitter) = &self.emitter {
+            emitter
+                .emit_background_progress(self.id, (self.component)(PendingCompleted::Completed));
+        }
+    }
+}
+
+impl<T: Clone> Drop for TauriBackgroundProgressHandle<T> {
+    fn drop(&mut self) {
+        (*self).finish();
     }
 }
 
@@ -349,25 +586,64 @@ pub struct DownloadProgress {
     pub size: u64,
 }
 
+#[derive(Clone, Serialize)]
 #[typeshare]
-#[derive(Display, Clone, Serialize)]
-#[serde(tag = "componentName", content = "progress")]
-pub enum TauriPartialInitProgress {
-    OpeningBitcoinWallet(PendingCompleted<()>),
-    DownloadingMoneroWalletRpc(PendingCompleted<DownloadProgress>),
-    OpeningMoneroWallet(PendingCompleted<()>),
-    OpeningDatabase(PendingCompleted<()>),
-    EstablishingTorCircuits(PendingCompleted<()>),
+#[serde(tag = "type", content = "content")]
+pub enum TauriBitcoinSyncProgress {
+    Known {
+        // Number of addresses processed
+        #[typeshare(serialized_as = "number")]
+        consumed: u64,
+        // Total number of addresses to process
+        #[typeshare(serialized_as = "number")]
+        total: u64,
+    },
+    Unknown,
+}
+
+#[derive(Clone, Serialize)]
+#[typeshare]
+#[serde(tag = "type", content = "content")]
+pub enum TauriBitcoinFullScanProgress {
+    Known {
+        #[typeshare(serialized_as = "number")]
+        current_index: u64,
+        #[typeshare(serialized_as = "number")]
+        assumed_total: u64,
+    },
+    Unknown,
+}
+
+#[derive(Serialize, Clone)]
+#[typeshare]
+pub struct BackgroundRefundProgress {
+    #[typeshare(serialized_as = "string")]
+    pub swap_id: Uuid,
 }
 
 #[typeshare]
 #[derive(Display, Clone, Serialize)]
-#[serde(tag = "type", content = "content")]
-pub enum TauriContextStatusEvent {
-    NotInitialized,
-    Initializing(Vec<TauriPartialInitProgress>),
-    Available,
-    Failed,
+#[serde(tag = "componentName", content = "progress")]
+pub enum TauriBackgroundProgress {
+    OpeningBitcoinWallet(PendingCompleted<()>),
+    DownloadingMoneroWalletRpc(PendingCompleted<DownloadProgress>),
+    OpeningMoneroWallet(PendingCompleted<()>),
+    OpeningDatabase(PendingCompleted<()>),
+    EstablishingTorCircuits(PendingCompleted<TorBootstrapStatus>),
+    SyncingBitcoinWallet(PendingCompleted<TauriBitcoinSyncProgress>),
+    FullScanningBitcoinWallet(PendingCompleted<TauriBitcoinFullScanProgress>),
+    BackgroundRefund(PendingCompleted<BackgroundRefundProgress>),
+}
+
+/// Wrapper struct for [`TauriBackgroundProgress`]
+/// Attaches a unique uuid to the progress event.
+/// This allows the frontend to cluster progress events to a single background process.
+#[typeshare]
+#[derive(Clone, Serialize)]
+pub struct TauriBackgroundProgressWrapper {
+    #[typeshare(serialized_as = "string")]
+    id: Uuid,
+    event: TauriBackgroundProgress,
 }
 
 #[derive(Serialize, Clone)]
@@ -379,8 +655,8 @@ pub struct TauriSwapProgressEventWrapper {
 }
 
 #[derive(Serialize, Clone)]
-#[serde(tag = "type", content = "content")]
 #[typeshare]
+#[serde(tag = "type", content = "content")]
 pub enum TauriSwapProgressEvent {
     RequestingQuote,
     Resuming,
@@ -389,25 +665,25 @@ pub enum TauriSwapProgressEvent {
         #[typeshare(serialized_as = "string")]
         deposit_address: bitcoin::Address,
         #[typeshare(serialized_as = "number")]
-        #[serde(with = "::bitcoin::util::amount::serde::as_sat")]
+        #[serde(with = "::bitcoin::amount::serde::as_sat")]
         max_giveable: bitcoin::Amount,
         #[typeshare(serialized_as = "number")]
-        #[serde(with = "::bitcoin::util::amount::serde::as_sat")]
+        #[serde(with = "::bitcoin::amount::serde::as_sat")]
         min_deposit_until_swap_will_start: bitcoin::Amount,
         #[typeshare(serialized_as = "number")]
-        #[serde(with = "::bitcoin::util::amount::serde::as_sat")]
+        #[serde(with = "::bitcoin::amount::serde::as_sat")]
         max_deposit_until_maximum_amount_is_reached: bitcoin::Amount,
         #[typeshare(serialized_as = "number")]
-        #[serde(with = "::bitcoin::util::amount::serde::as_sat")]
+        #[serde(with = "::bitcoin::amount::serde::as_sat")]
         min_bitcoin_lock_tx_fee: bitcoin::Amount,
         quote: BidQuote,
     },
     SwapSetupInflight {
         #[typeshare(serialized_as = "number")]
-        #[serde(with = "::bitcoin::util::amount::serde::as_sat")]
+        #[serde(with = "::bitcoin::amount::serde::as_sat")]
         btc_lock_amount: bitcoin::Amount,
         #[typeshare(serialized_as = "number")]
-        #[serde(with = "::bitcoin::util::amount::serde::as_sat")]
+        #[serde(with = "::bitcoin::amount::serde::as_sat")]
         btc_tx_lock_fee: bitcoin::Amount,
     },
     BtcLockTxInMempool {
@@ -454,7 +730,6 @@ pub enum TauriSwapProgressEvent {
 /// It contains a json serialized object containing the log message and metadata.
 #[typeshare]
 #[derive(Debug, Serialize, Clone)]
-#[typeshare]
 pub struct TauriLogEvent {
     /// The serialized object containing the log message and metadata.
     pub buffer: String,
@@ -484,23 +759,13 @@ pub enum BackgroundRefundState {
     Completed,
 }
 
-#[derive(Serialize, Clone)]
+/// The status of the Tor bootstrap process
+/// The [`ToTauriBootstrapStatus`] trait from `swap/src/common/tor.rs` is used to convert the Tor bootstrap status
+/// from the `arti-client` crate into this struct which we can then send over the wire.
 #[typeshare]
-pub struct TauriBackgroundRefundEvent {
-    #[typeshare(serialized_as = "string")]
-    swap_id: Uuid,
-    state: BackgroundRefundState,
-}
-
-/// This struct contains the settings for the Context
-#[typeshare]
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct TauriSettings {
-    /// The URL of the Monero node e.g `http://xmr.node:18081`
-    pub monero_node_url: Option<String>,
-    /// The URL of the Electrum RPC server e.g `ssl://bitcoin.com:50001`
-    #[typeshare(serialized_as = "string")]
-    pub electrum_rpc_url: Option<Url>,
-    /// Whether to initialize and use a tor client.
-    pub use_tor: bool,
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TorBootstrapStatus {
+    pub frac: f32,
+    pub ready_for_traffic: bool,
+    pub blockage: Option<String>,
 }

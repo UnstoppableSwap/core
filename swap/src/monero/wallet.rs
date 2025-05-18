@@ -57,6 +57,8 @@ impl Wallet {
 
     /// Connects to a wallet RPC where a wallet is already loaded.
     pub async fn connect(client: wallet::Client, name: String, env_config: Config) -> Result<Self> {
+        tracing::info!(monero_wallet_name = %name, "Connecting to Monero wallet");
+
         let main_address =
             monero::Address::from_str(client.get_address(0).await?.address.as_str())?;
 
