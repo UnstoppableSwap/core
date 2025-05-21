@@ -2,4 +2,4 @@
 # also update this in the readme, changelog, and github actions
 channel = "1.82"
 components = ["clippy"]
-targets = ["armv7-unknown-linux-gnueabihf"]
+targets = ["armv7-unknown-linux-gnueabihf", "x86_64-unknown-linux-musl"]

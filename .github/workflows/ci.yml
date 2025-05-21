@@ -35,7 +35,8 @@ jobs:
             libxdo-dev \
             libssl-dev \
             libayatana-appindicator3-dev \
-            librsvg2-dev
+            librsvg2-dev \
+            musl-tools
 
       - name: Check formatting
         uses: dprint/check@v2.2
@@ -67,7 +68,8 @@ jobs:
             libxdo-dev \
             libssl-dev \
             libayatana-appindicator3-dev \
-            librsvg2-dev
+            librsvg2-dev \
+            musl-tools
 
       - name: Build swap
         run: cargo build --bin swap
@@ -94,7 +96,8 @@ jobs:
             libxdo-dev \
             libssl-dev \
             libayatana-appindicator3-dev \
-            librsvg2-dev
+            librsvg2-dev \
+            musl-tools
 
       - name: Install sqlx-cli
         run: cargo install --locked --version 0.6.3 sqlx-cli
@@ -109,6 +112,8 @@ jobs:
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
           - target: armv7-unknown-linux-gnueabihf
             os: ubuntu-latest
@@ -128,7 +133,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.82"
-          targets: armv7-unknown-linux-gnueabihf
+          targets: armv7-unknown-linux-gnueabihf,x86_64-unknown-linux-musl
 
       - name: Install dependencies required by Tauri v2 (ubuntu only)
         if: matrix.os == 'ubuntu-latest' # This must match the platform value defined above.
@@ -142,7 +147,8 @@ jobs:
             libxdo-dev \
             libssl-dev \
             libayatana-appindicator3-dev \
-            librsvg2-dev
+            librsvg2-dev \
+            musl-tools
 
       - name: Build binary
         if: matrix.target != 'armv7-unknown-linux-gnueabihf'
@@ -199,7 +205,8 @@ jobs:
             libxdo-dev \
             libssl-dev \
             libayatana-appindicator3-dev \
-            librsvg2-dev
+            librsvg2-dev \
+            musl-tools
 
       - name: Checkout sources
         uses: actions/checkout@v4.1.7
@@ -257,7 +264,8 @@ jobs:
             libxdo-dev \
             libssl-dev \
             libayatana-appindicator3-dev \
-            librsvg2-dev
+            librsvg2-dev \
+            musl-tools
 
       - name: Run test ${{ matrix.test_name }}
         run: cargo test --package swap --test ${{ matrix.test_name }} -- --nocapture
@@ -281,7 +289,8 @@ jobs:
             libxdo-dev \
             libssl-dev \
             libayatana-appindicator3-dev \
-            librsvg2-dev
+            librsvg2-dev \
+            musl-tools
 
       - name: Run RPC server tests
         run: cargo test --package swap --test rpc -- --nocapture
@@ -307,7 +316,8 @@ jobs:
             libxdo-dev \
             libssl-dev \
             libayatana-appindicator3-dev \
-            librsvg2-dev
+            librsvg2-dev \
+            musl-tools
 
       - name: Run cargo check on stable rust
         run: cargo check --all-targets
