@@ -35,12 +35,13 @@ pub async fn cancel(
             state3,
             monero_wallet_restore_blockheight,
             ..
-        } => state3.cancel(monero_wallet_restore_blockheight),
+        } => state3.cancel(monero_wallet_restore_blockheight, None),
         BobState::XmrLockProofReceived {
             state,
+            lock_transfer_proof,
             monero_wallet_restore_blockheight,
             ..
-        } => state.cancel(monero_wallet_restore_blockheight),
+        } => state.cancel(monero_wallet_restore_blockheight, Some(lock_transfer_proof)),
         BobState::XmrLocked(state4) => state4.cancel(),
         BobState::EncSigSent(state4) => state4.cancel(),
         BobState::CancelTimelockExpired(state6) => state6,
@@ -130,12 +131,13 @@ pub async fn refund(
         BobState::BtcLocked {
             state3,
             monero_wallet_restore_blockheight,
-        } => state3.cancel(monero_wallet_restore_blockheight),
+        } => state3.cancel(monero_wallet_restore_blockheight, None),
         BobState::XmrLockProofReceived {
             state,
+            lock_transfer_proof,
             monero_wallet_restore_blockheight,
             ..
-        } => state.cancel(monero_wallet_restore_blockheight),
+        } => state.cancel(monero_wallet_restore_blockheight, Some(lock_transfer_proof)),
         BobState::XmrLocked(state4) => state4.cancel(),
         BobState::EncSigSent(state4) => state4.cancel(),
         BobState::CancelTimelockExpired(state6) => state6,

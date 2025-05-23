@@ -129,9 +129,6 @@ impl Wallets {
 
             monero::Address::standard(self.network, public_spend_key, public_view_key)
         };
-        // The wallet's filename is just the swap's uuid as a string
-        let filename = swap_id.to_string();
-        let wallet_path = self.wallet_dir.join(&filename).display().to_string();
 
         let wallet = Wallet::open_or_create_from_keys(
             wallet_path.clone(),
@@ -144,10 +141,59 @@ impl Wallets {
             self.daemon.clone(),
         )
         .await
-        .context(format!(
-            "Failed to open or create wallet `{}` from the specified keys",
-            wallet_path
-        ))?;
+        .context(format!("Failed to open or create wallet `{}`", wallet_path))?;
+
+        if self.regtest {
+            wallet.unsafe_prepare_for_regtest().await;
+        }
+
+        let wallet = Arc::new(wallet);
+        self.wallets
+            .lock()
+            .await
+            .insert(filename, Arc::downgrade(&wallet));
+
+        Ok(wallet)
+    }
+
+    /// Open the swap wallet and manually scan the provided transactions.
+    pub async fn swap_wallet_manual(
+        &self,
+        swap_id: Uuid,
+        spend_key: monero::PrivateKey,
+        view_key: super::PrivateViewKey,
+        txids: Vec<super::TxHash>,
+    ) -> Result<Arc<Wallet>> {
+        let filename = swap_id.to_string();
+        let wallet_path = self.wallet_dir.join(&filename).display().to_string();
+
+        if let Some(wallet) = self.wallets.lock().await.get(&filename) {
+            if let Some(wallet) = wallet.upgrade() {
+                return Ok(wallet);
+            }
+        }
+
+        let address = {
+            let public_spend_key = monero::PublicKey::from_private_key(&spend_key);
+            let public_view_key = monero::PublicKey::from_private_key(&view_key.into());
+            monero::Address::standard(self.network, public_spend_key, public_view_key)
+        };
+
+        let txid_strings: Vec<String> = txids.into_iter().map(|h| h.0).collect();
+
+
+        let wallet = Wallet::open_or_create_from_keys_with_txids(
+            wallet_path.clone(),
+            None,
+            self.network,
+            address,
+            view_key.into(),
+            spend_key,
+            txid_strings,
+            self.daemon.clone(),
+        )
+        .await
+        .context(format!("Failed to open or create wallet `{}`", wallet_path))?;
 
         if self.regtest {
             wallet.unsafe_prepare_for_regtest().await;

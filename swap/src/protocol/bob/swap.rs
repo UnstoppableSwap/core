@@ -229,7 +229,7 @@ async fn next_state(
                 .await?
                 .cancel_timelock_expired()
             {
-                let state4 = state3.cancel(monero_wallet_restore_blockheight);
+                let state4 = state3.cancel(monero_wallet_restore_blockheight, None);
                 return Ok(BobState::CancelTimelockExpired(state4));
             };
 
@@ -287,7 +287,7 @@ async fn next_state(
                     result?;
                     tracing::info!("Alice took too long to lock Monero, cancelling the swap");
 
-                    let state4 = state3.cancel(monero_wallet_restore_blockheight);
+                    let state4 = state3.cancel(monero_wallet_restore_blockheight, None);
                     BobState::CancelTimelockExpired(state4)
                 },
             }
@@ -315,12 +315,13 @@ async fn next_state(
                 .cancel_timelock_expired()
             {
                 return Ok(BobState::CancelTimelockExpired(
-                    state.cancel(monero_wallet_restore_blockheight),
+                    state.cancel(monero_wallet_restore_blockheight, Some(lock_transfer_proof.clone())),
                 ));
             };
 
             let watch_request = state.lock_xmr_watch_request(lock_transfer_proof.clone());
 
+            let lock_transfer_proof_for_closure = lock_transfer_proof.clone();
             let watch_future = monero_wallet.wait_until_confirmed(
                 watch_request,
                 Some(move |confirmations| {
@@ -328,7 +329,7 @@ async fn next_state(
                     event_emitter.emit_swap_progress_event(
                         swap_id,
                         TauriSwapProgressEvent::XmrLockTxInMempool {
-                            xmr_lock_txid: lock_transfer_proof.tx_hash(),
+                            xmr_lock_txid: lock_transfer_proof_for_closure.tx_hash(),
                             xmr_lock_tx_confirmations: confirmations,
                         },
                     );
@@ -339,7 +340,10 @@ async fn next_state(
                 received_xmr = watch_future => {
                     match received_xmr {
                         Ok(()) =>
-                            BobState::XmrLocked(state.xmr_locked(monero_wallet_restore_blockheight)),
+                            BobState::XmrLocked(state.xmr_locked(
+                                monero_wallet_restore_blockheight,
+                                lock_transfer_proof.clone(),
+                            )),
                         Err(err) if err.to_string().contains("amount mismatch") => {
                             // Alice locked insufficient Monero
                             tracing::warn!(%err, "Insufficient Monero have been locked!");
@@ -349,7 +353,7 @@ async fn next_state(
                             // because there's no way of recovering from this state
                             tx_lock_status.wait_until_confirmed_with(state.cancel_timelock).await?;
 
-                            BobState::CancelTimelockExpired(state.cancel(monero_wallet_restore_blockheight))
+                            BobState::CancelTimelockExpired(state.cancel(monero_wallet_restore_blockheight, Some(lock_transfer_proof.clone())))
                         },
                         Err(err) => {
                             tracing::error!(%err, "Failed to wait for Monero lock transaction to be confirmed");
@@ -359,7 +363,7 @@ async fn next_state(
                 }
                 result = tx_lock_status.wait_until_confirmed_with(state.cancel_timelock) => {
                     result?;
-                    BobState::CancelTimelockExpired(state.cancel(monero_wallet_restore_blockheight))
+                    BobState::CancelTimelockExpired(state.cancel(monero_wallet_restore_blockheight, Some(lock_transfer_proof.clone())))
                 }
             }
         }

@@ -148,6 +148,12 @@ namespace Monero
     {
         return std::make_unique<std::vector<std::string>>(tx.txid());
     }
+
+    inline bool scanTransaction(Wallet &wallet, const std::string &txid)
+    {
+        std::vector<std::string> txs{txid};
+        return wallet.scanTransactions(txs);
+    }
 }
 
 #include "easylogging++.h"
