@@ -8,7 +8,7 @@ use crate::cli::EventLoopHandle;
 use crate::network::cooperative_xmr_redeem_after_punish::Response::{Fullfilled, Rejected};
 use crate::network::swap_setup::bob::NewSwap;
 use crate::protocol::bob::state::*;
-use crate::protocol::{bob, Database};
+use crate::protocol::{bob, Database, State};
 use crate::{bitcoin, monero};
 use anyhow::{bail, Context as AnyContext, Result};
 use std::sync::Arc;
@@ -319,7 +319,10 @@ async fn next_state(
                 ));
             };
 
-            let watch_request = state.lock_xmr_watch_request(lock_transfer_proof.clone());
+            let mut watch_request = state.lock_xmr_watch_request(lock_transfer_proof.clone());
+            // Only wait for two confirmations before sending our encrypted
+            // signature to Alice so she can redeem the Bitcoin.
+            watch_request.confirmation_target = 2;
 
             let watch_future = monero_wallet.wait_until_confirmed(
                 watch_request,
@@ -435,6 +438,25 @@ async fn next_state(
         }
         BobState::BtcRedeemed(state) => {
             event_emitter.emit_swap_progress_event(swap_id, TauriSwapProgressEvent::BtcRedeemed);
+
+            // Before attempting to redeem the Monero we ensure that the lock
+            // transaction reached finality. We fetch the previously buffered
+            // transfer proof and wait for the configured number of confirmations
+            // (typically ten).
+            if let Some(State::Bob(BobState::XmrLockProofReceived { state: ref state3, lock_transfer_proof, .. })) =
+                db.get_states(swap_id)
+                    .await?
+                    .into_iter()
+                    .find(|s| matches!(s, State::Bob(BobState::XmrLockProofReceived { .. })))
+            {
+                let mut watch_request = state3.lock_xmr_watch_request(lock_transfer_proof);
+                watch_request.confirmation_target = state3.min_monero_confirmations;
+                // Ignore any errors here as the funds may already be spendable
+                // if we raced past the confirmation target while offline.
+                let _ = monero_wallet
+                    .wait_until_confirmed(watch_request, None::<fn(u64)>)
+                    .await;
+            }
 
             let xmr_redeem_txids = state
                 .redeem_xmr(&monero_wallet, swap_id, monero_receive_address)
