@@ -21,6 +21,9 @@ monero_sys:
 tauri:
 	cd src-tauri && cargo tauri dev --no-watch -- -- --testnet
 
+tauri-mainnet:
+	cd src-tauri && cargo tauri dev --no-watch
+
 # Install the GUI dependencies
 gui_install:
 	cd src-gui && yarn install

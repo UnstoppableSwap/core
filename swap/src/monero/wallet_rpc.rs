@@ -186,6 +186,11 @@ async fn choose_monero_daemon(network: Network) -> Result<MoneroDaemon, Error> {
     bail!("No Monero daemon could be found. Please specify one manually or try again later.")
 }
 
+/// Public wrapper around [`choose_monero_daemon`].
+pub async fn choose_monero_node(network: Network) -> Result<MoneroDaemon, Error> {
+    choose_monero_daemon(network).await
+}
+
 impl WalletRpcProcess {
     pub fn endpoint(&self) -> Url {
         Url::parse(&format!("http://127.0.0.1:{}/json_rpc", self.port))
@@ -366,7 +371,11 @@ impl WalletRpc {
 
                 daemon
             }
-            None => choose_monero_daemon(network).await?,
+            None => {
+                let daemon = choose_monero_node(network).await?;
+                tracing::debug!(%daemon, "Automatically selected monero node");
+                daemon
+            },
         };
 
         let daemon_address = daemon.to_string();

@@ -23,7 +23,7 @@ pub struct Defaults {
     data_dir: PathBuf,
     listen_address_tcp: Multiaddr,
     electrum_rpc_url: Url,
-    monero_wallet_rpc_url: Url,
+    monero_daemon_address: Url,
     price_ticker_ws_url: Url,
     bitcoin_confirmation_target: u16,
 }
@@ -37,7 +37,7 @@ impl GetDefaults for Testnet {
             data_dir: default_asb_data_dir()?.join("testnet"),
             listen_address_tcp: Multiaddr::from_str("/ip4/0.0.0.0/tcp/9939")?,
             electrum_rpc_url: Url::parse("ssl://electrum.blockstream.info:60002")?,
-            monero_wallet_rpc_url: Url::parse("http://127.0.0.1:38083/json_rpc")?,
+            monero_daemon_address: Url::parse("node.sethforprivacy.com:38089")?,
             price_ticker_ws_url: Url::parse("wss://ws.kraken.com")?,
             bitcoin_confirmation_target: 1,
         };
@@ -55,7 +55,7 @@ impl GetDefaults for Mainnet {
             data_dir: default_asb_data_dir()?.join("mainnet"),
             listen_address_tcp: Multiaddr::from_str("/ip4/0.0.0.0/tcp/9939")?,
             electrum_rpc_url: Url::parse("ssl://blockstream.info:700")?,
-            monero_wallet_rpc_url: Url::parse("http://127.0.0.1:18083/json_rpc")?,
+            monero_daemon_address: Url::parse("nthpyro.dev:18089")?,
             price_ticker_ws_url: Url::parse("wss://ws.kraken.com")?,
             bitcoin_confirmation_target: 3,
         };
@@ -310,7 +310,7 @@ pub fn query_user_for_initial_config(testnet: bool) -> Result<Config> {
 
     let monero_wallet_rpc_url = Input::with_theme(&ColorfulTheme::default())
         .with_prompt("Enter Monero Wallet RPC URL or hit enter to use default")
-        .default(defaults.monero_wallet_rpc_url)
+        .default(defaults.monero_daemon_address)
         .interact_text()?;
 
     let register_hidden_service = Select::with_theme(&ColorfulTheme::default())
@@ -428,7 +428,7 @@ mod tests {
                 external_addresses: vec![],
             },
             monero: Monero {
-                wallet_rpc_url: defaults.monero_wallet_rpc_url,
+                wallet_rpc_url: defaults.monero_daemon_address,
                 finality_confirmations: None,
                 network: monero::Network::Stagenet,
             },
@@ -472,7 +472,7 @@ mod tests {
                 external_addresses: vec![],
             },
             monero: Monero {
-                wallet_rpc_url: defaults.monero_wallet_rpc_url,
+                wallet_rpc_url: defaults.monero_daemon_address,
                 finality_confirmations: None,
                 network: monero::Network::Mainnet,
             },
@@ -526,7 +526,7 @@ mod tests {
                 external_addresses,
             },
             monero: Monero {
-                wallet_rpc_url: defaults.monero_wallet_rpc_url,
+                wallet_rpc_url: defaults.monero_daemon_address,
                 finality_confirmations: None,
                 network: monero::Network::Mainnet,
             },
