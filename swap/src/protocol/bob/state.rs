@@ -46,6 +46,9 @@ pub enum BobState {
     CancelTimelockExpired(State6),
     BtcCancelled(State6),
     BtcRefunded(State6),
+    BtcEarlyRefunded {
+        tx_early_refund: bitcoin::Txid,
+    },
     XmrRedeemed {
         tx_lock_id: bitcoin::Txid,
     },
@@ -73,6 +76,7 @@ impl fmt::Display for BobState {
             BobState::BtcRefunded(..) => write!(f, "btc is refunded"),
             BobState::XmrRedeemed { .. } => write!(f, "xmr is redeemed"),
             BobState::BtcPunished { .. } => write!(f, "btc is punished"),
+            BobState::BtcEarlyRefunded { .. } => write!(f, "btc is early refunded"),
             BobState::SafelyAborted => write!(f, "safely aborted"),
         }
     }
@@ -100,9 +104,10 @@ impl BobState {
                 Some(state.expired_timelock(&bitcoin_wallet).await?)
             }
             BobState::BtcPunished { .. } => Some(ExpiredTimelocks::Punish),
-            BobState::BtcRefunded(_) | BobState::BtcRedeemed(_) | BobState::XmrRedeemed { .. } => {
-                None
-            }
+            BobState::BtcRefunded(_)
+            | BobState::BtcEarlyRefunded { .. }
+            | BobState::BtcRedeemed(_)
+            | BobState::XmrRedeemed { .. } => None,
         })
     }
 }
@@ -205,6 +210,7 @@ impl State0 {
             bail!("Alice's dleq proof doesn't verify")
         }
 
+        // Here: Allow TxLock to be spent with both Bobs sig and Alices sig
         let tx_lock = bitcoin::TxLock::new(
             wallet,
             self.btc,
@@ -275,6 +281,7 @@ impl State1 {
             self.b.public(),
             self.tx_cancel_fee,
         )?;
+
         let tx_refund =
             bitcoin::TxRefund::new(&tx_cancel, &self.refund_address, self.tx_refund_fee);
 
@@ -359,11 +366,17 @@ impl State2 {
             self.punish_timelock,
             self.tx_punish_fee,
         );
+
+        let tx_early_refund =
+            bitcoin::TxEarlyRefund::new(&self.tx_lock, &self.refund_address, self.tx_refund_fee);
+
         let tx_punish_sig = self.b.sign(tx_punish.digest());
+        let tx_early_refund_sig = self.b.sign(tx_early_refund.digest());
 
         Message4 {
             tx_punish_sig,
             tx_cancel_sig,
+            tx_early_refund_sig,
         }
     }
 
@@ -501,6 +514,7 @@ impl State3 {
             tx_cancel_status,
         ))
     }
+
     pub fn attempt_cooperative_redeem(
         &self,
         s_a: monero::PrivateKey,
@@ -513,6 +527,10 @@ impl State3 {
             tx_lock: self.tx_lock.clone(),
             monero_wallet_restore_blockheight,
         }
+    }
+
+    pub fn construct_tx_early_refund(&self) -> bitcoin::TxEarlyRefund {
+        bitcoin::TxEarlyRefund::new(&self.tx_lock, &self.refund_address, self.tx_refund_fee)
     }
 }
 
@@ -789,9 +807,14 @@ impl State6 {
         Ok(signed_tx_refund)
     }
 
+    pub fn construct_tx_early_refund(&self) -> bitcoin::TxEarlyRefund {
+        bitcoin::TxEarlyRefund::new(&self.tx_lock, &self.refund_address, self.tx_refund_fee)
+    }
+
     pub fn tx_lock_id(&self) -> bitcoin::Txid {
         self.tx_lock.txid()
     }
+
     pub fn attempt_cooperative_redeem(&self, s_a: monero::PrivateKey) -> State5 {
         State5 {
             s_a,
@@ -800,5 +823,17 @@ impl State6 {
             tx_lock: self.tx_lock.clone(),
             monero_wallet_restore_blockheight: self.monero_wallet_restore_blockheight,
         }
+    }
+
+    pub async fn check_for_tx_early_refund(
+        &self,
+        bitcoin_wallet: &bitcoin::Wallet,
+    ) -> Result<Arc<Transaction>> {
+        let tx_early_refund = self.construct_tx_early_refund();
+        let tx = bitcoin_wallet
+            .get_raw_transaction(tx_early_refund.txid())
+            .await?;
+
+        Ok(tx)
     }
 }

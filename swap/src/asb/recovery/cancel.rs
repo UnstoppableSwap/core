@@ -38,6 +38,8 @@ pub async fn cancel(
         // Alice already in final state
         | AliceState::BtcRedeemed
         | AliceState::XmrRefunded
+        | AliceState::EarlyRefundable { .. }
+        | AliceState::EarlyRefunded { .. }
         | AliceState::BtcPunished { .. }
         | AliceState::SafelyAborted => bail!("Swap is in state {} which is not cancelable", state),
     };

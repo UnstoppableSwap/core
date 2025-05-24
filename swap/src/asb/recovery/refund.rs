@@ -56,6 +56,8 @@ pub async fn refund(
         AliceState::BtcRedeemTransactionPublished { .. }
         | AliceState::BtcRedeemed
         | AliceState::XmrRefunded
+        | AliceState::EarlyRefundable { .. }
+        | AliceState::EarlyRefunded { .. }
         | AliceState::BtcPunished { .. }
         | AliceState::SafelyAborted => bail!(Error::SwapNotRefundable(state)),
     };

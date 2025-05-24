@@ -75,6 +75,8 @@ pub enum AliceEndState {
     SafelyAborted,
     BtcRedeemed,
     XmrRefunded,
+    EarlyRefundable { state3: alice::State3 },
+    BtcEarlyRefunded { tx_early_refund: bitcoin::Txid },
     BtcPunished { state3: alice::State3 },
 }
 
@@ -154,6 +156,14 @@ impl From<AliceState> for Alice {
                 spend_key,
                 state3: state3.as_ref().clone(),
             },
+            AliceState::EarlyRefundable { state3 } => Alice::Done(AliceEndState::EarlyRefundable {
+                state3: state3.as_ref().clone(),
+            }),
+            AliceState::EarlyRefunded {
+                tx_early_refund_txid,
+            } => Alice::Done(AliceEndState::BtcEarlyRefunded {
+                tx_early_refund: tx_early_refund_txid,
+            }),
             AliceState::BtcPunishable {
                 monero_wallet_restore_blockheight,
                 transfer_proof,
@@ -280,6 +290,12 @@ impl From<Alice> for AliceState {
                 AliceEndState::BtcRedeemed => AliceState::BtcRedeemed,
                 AliceEndState::XmrRefunded => AliceState::XmrRefunded,
                 AliceEndState::BtcPunished { state3 } => AliceState::BtcPunished {
+                    state3: Box::new(state3),
+                },
+                AliceEndState::BtcEarlyRefunded { tx_early_refund } => AliceState::EarlyRefunded {
+                    tx_early_refund_txid: tx_early_refund,
+                },
+                AliceEndState::EarlyRefundable { state3 } => AliceState::EarlyRefundable {
                     state3: Box::new(state3),
                 },
             },
