@@ -50,7 +50,7 @@ where
     latest_rate: LR,
     min_buy: bitcoin::Amount,
     max_buy: bitcoin::Amount,
-    external_redeem_address: Option<bitcoin::Address>,
+    external_redeem_address: Option<bdk_wallet::miniscript::Descriptor<bitcoin::PublicKey>>,
 
     /// Cache for quotes
     quote_cache: Cache<QuoteCacheKey, Result<Arc<BidQuote>, Arc<anyhow::Error>>>,
@@ -137,7 +137,7 @@ where
         latest_rate: LR,
         min_buy: bitcoin::Amount,
         max_buy: bitcoin::Amount,
-        external_redeem_address: Option<bitcoin::Address>,
+        external_redeem_address: Option<bdk_wallet::miniscript::Descriptor<bitcoin::PublicKey>>,
     ) -> Result<(Self, mpsc::Receiver<Swap>)> {
         let swap_channel = MpscChannels::default();
         let (outgoing_transfer_proofs_sender, outgoing_transfer_proofs_requests) =

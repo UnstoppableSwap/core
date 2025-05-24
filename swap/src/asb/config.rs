@@ -212,8 +212,9 @@ pub struct Maker {
     pub max_buy_btc: bitcoin::Amount,
     pub ask_spread: Decimal,
     pub price_ticker_ws_url: Url,
-    #[serde(default, with = "crate::bitcoin::address_serde::option")]
-    pub external_bitcoin_redeem_address: Option<bitcoin::Address>,
+    #[serde(default, with = "crate::bitcoin::descriptor_serde::option")]
+    pub external_bitcoin_redeem_address:
+        Option<bdk_wallet::miniscript::Descriptor<bitcoin::PublicKey>>,
 }
 
 impl Default for TorConf {

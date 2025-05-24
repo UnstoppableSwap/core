@@ -114,6 +114,60 @@ pub mod address_serde {
     }
 }
 
+/// Serde utilities for handling `Descriptor<PublicKey>`.
+pub mod descriptor_serde {
+    use std::str::FromStr;
+
+    use bdk_wallet::miniscript::Descriptor;
+    use bitcoin::PublicKey;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S>(descriptor: &Descriptor<PublicKey>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        descriptor.to_string().serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Descriptor<PublicKey>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Descriptor::from_str(&s).map_err(serde::de::Error::custom)
+    }
+
+    pub mod option {
+        use super::*;
+
+        pub fn serialize<S>(
+            descriptor: &Option<Descriptor<PublicKey>>,
+            serializer: S,
+        ) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            match descriptor {
+                Some(d) => d.to_string().serialize(serializer),
+                None => serializer.serialize_none(),
+            }
+        }
+
+        pub fn deserialize<'de, D>(
+            deserializer: D,
+        ) -> Result<Option<Descriptor<PublicKey>>, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            let opt: Option<String> = Option::deserialize(deserializer)?;
+            match opt {
+                Some(s) => Ok(Some(Descriptor::from_str(&s).map_err(serde::de::Error::custom)?)),
+                None => Ok(None),
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct SecretKey {
     inner: Scalar,
