@@ -16,6 +16,7 @@ export default function ScrollablePaperTextBox({
   setSearchQuery = null,
   topRightButton = null,
   minHeight = MIN_HEIGHT,
+  autoScroll = false,
 }: {
   rows: ReactNode[];
   title: string;
@@ -23,7 +24,8 @@ export default function ScrollablePaperTextBox({
   searchQuery: string | null;
   setSearchQuery?: ((query: string) => void) | null;
   minHeight?: string;
-  topRightButton?: ReactNode | null
+  topRightButton?: ReactNode | null;
+  autoScroll?: boolean;
 }) {
   const virtuaEl = useRef<VListHandle | null>(null);
 
@@ -38,6 +40,12 @@ export default function ScrollablePaperTextBox({
   function scrollToTop() {
     virtuaEl.current?.scrollToIndex(0);
   }
+
+  useEffect(() => {
+    if (autoScroll) {
+      scrollToBottom();
+    }
+  }, [rows.length, autoScroll]);
 
   return (
     <Paper

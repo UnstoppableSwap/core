@@ -225,9 +225,9 @@ impl EventLoop {
                                 let _ = responder.respond(Ok(()));
                             }
                         }
-                        SwarmEvent::Behaviour(OutEvent::CooperativeXmrRedeemFulfilled { id, swap_id, s_a }) => {
+                        SwarmEvent::Behaviour(OutEvent::CooperativeXmrRedeemFulfilled { id, swap_id, s_a, transfer_proof, monero_wallet_restore_blockheight }) => {
                             if let Some(responder) = self.inflight_cooperative_xmr_redeem_requests.remove(&id) {
-                                let _ = responder.respond(Ok(Response::Fullfilled { s_a, swap_id }));
+                                let _ = responder.respond(Ok(Response::Fullfilled { s_a, swap_id, transfer_proof, monero_wallet_restore_blockheight }));
                             }
                         }
                         SwarmEvent::Behaviour(OutEvent::CooperativeXmrRedeemRejected { id, swap_id, reason }) => {

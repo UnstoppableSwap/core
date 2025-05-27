@@ -75,7 +75,11 @@ pub enum AliceEndState {
     SafelyAborted,
     BtcRedeemed,
     XmrRefunded,
-    BtcPunished { state3: alice::State3 },
+    BtcPunished {
+        state3: alice::State3,
+        monero_wallet_restore_blockheight: BlockHeight,
+        transfer_proof: TransferProof,
+    },
 }
 
 impl From<AliceState> for Alice {
@@ -173,8 +177,14 @@ impl From<AliceState> for Alice {
                 transfer_proof,
                 state3: state3.as_ref().clone(),
             },
-            AliceState::BtcPunished { state3 } => Alice::Done(AliceEndState::BtcPunished {
+            AliceState::BtcPunished {
+                state3,
+                transfer_proof,
+                monero_wallet_restore_blockheight,
+            } => Alice::Done(AliceEndState::BtcPunished {
                 state3: state3.as_ref().clone(),
+                monero_wallet_restore_blockheight,
+                transfer_proof,
             }),
             AliceState::SafelyAborted => Alice::Done(AliceEndState::SafelyAborted),
         }
@@ -279,8 +289,14 @@ impl From<Alice> for AliceState {
                 AliceEndState::SafelyAborted => AliceState::SafelyAborted,
                 AliceEndState::BtcRedeemed => AliceState::BtcRedeemed,
                 AliceEndState::XmrRefunded => AliceState::XmrRefunded,
-                AliceEndState::BtcPunished { state3 } => AliceState::BtcPunished {
+                AliceEndState::BtcPunished {
+                    state3,
+                    monero_wallet_restore_blockheight,
+                    transfer_proof,
+                } => AliceState::BtcPunished {
                     state3: Box::new(state3),
+                    monero_wallet_restore_blockheight,
+                    transfer_proof,
                 },
             },
         }

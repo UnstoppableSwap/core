@@ -502,6 +502,7 @@ pub struct NotThreeWitnesses(usize);
 mod tests {
     use super::*;
     use crate::env::{GetConfig, Regtest};
+    use crate::monero::TransferProof;
     use crate::protocol::{alice, bob};
     use bitcoin::secp256k1;
     use ecdsa_fun::fun::marker::{NonZero, Public};
@@ -622,7 +623,10 @@ mod tests {
         let alice_state3 = alice_state2.receive(bob_message4).unwrap();
 
         let (bob_state3, _tx_lock) = bob_state2.lock_btc().await.unwrap();
-        let bob_state4 = bob_state3.xmr_locked(monero_rpc::wallet::BlockHeight { height: 0 });
+        let bob_state4 = bob_state3.xmr_locked(
+            monero_rpc::wallet::BlockHeight { height: 0 },
+            TransferProof::new_dummy()
+        );
         let encrypted_signature = bob_state4.tx_redeem_encsig();
         let bob_state6 = bob_state4.cancel();
 

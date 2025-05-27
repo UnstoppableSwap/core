@@ -16,6 +16,7 @@ import { setupBackgroundTasks } from "renderer/background";
 import "@fontsource/roboto";
 import FeedbackPage from "./pages/feedback/FeedbackPage";
 import IntroductionModal from "./modal/introduction/IntroductionModal";
+import ContextInitOverlay from "./overlay/ContextInitOverlay";
 
 const useStyles = makeStyles((theme) => ({
   innerContent: {
@@ -38,6 +39,7 @@ export default function App() {
       <GlobalSnackbarProvider>
         <CssBaseline />
         <IntroductionModal/>
+        <ContextInitOverlay />
         <Router>
           <Navigation />
           <InnerContent />

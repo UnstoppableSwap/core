@@ -1,7 +1,8 @@
-use crate::monero::Scalar;
+use crate::monero::{Scalar, TransferProof};
 use crate::{asb, cli};
 use libp2p::request_response::ProtocolSupport;
 use libp2p::{request_response, PeerId, StreamProtocol};
+use monero_rpc::wallet::BlockHeight;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use uuid::Uuid;
@@ -41,6 +42,8 @@ pub enum Response {
     Fullfilled {
         swap_id: Uuid,
         s_a: Scalar,
+        transfer_proof: TransferProof,
+        monero_wallet_restore_blockheight: BlockHeight,
     },
     Rejected {
         swap_id: Uuid,
@@ -93,10 +96,17 @@ impl From<(PeerId, Message)> for cli::OutEvent {
                 response,
                 request_id,
             } => match response {
-                Response::Fullfilled { swap_id, s_a } => Self::CooperativeXmrRedeemFulfilled {
+                Response::Fullfilled {
+                    swap_id,
+                    s_a,
+                    transfer_proof,
+                    monero_wallet_restore_blockheight,
+                } => Self::CooperativeXmrRedeemFulfilled {
                     id: request_id,
                     swap_id,
                     s_a,
+                    transfer_proof,
+                    monero_wallet_restore_blockheight,
                 },
                 Response::Rejected {
                     swap_id,

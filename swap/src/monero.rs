@@ -217,11 +217,23 @@ impl TransferProof {
     pub fn new(tx_hash: TxHash, tx_key: PrivateKey) -> Self {
         Self { tx_hash, tx_key }
     }
+
     pub fn tx_hash(&self) -> TxHash {
         self.tx_hash.clone()
     }
+
     pub fn tx_key(&self) -> PrivateKey {
         self.tx_key
+    }
+
+    #[cfg(test)]
+    pub fn new_dummy() -> Self {
+        Self {
+            tx_hash: TxHash(
+                "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+            ),
+            tx_key: PrivateKey::from_scalar(Scalar::from_bytes_mod_order([0; 32])),
+        }
     }
 }
 

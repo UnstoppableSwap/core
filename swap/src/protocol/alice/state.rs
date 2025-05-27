@@ -78,6 +78,8 @@ pub enum AliceState {
     },
     BtcPunished {
         state3: Box<State3>,
+        monero_wallet_restore_blockheight: BlockHeight,
+        transfer_proof: TransferProof,
     },
     SafelyAborted,
 }

@@ -19,36 +19,48 @@ pub async fn punish(
 ) -> Result<(Txid, AliceState)> {
     let state = db.get_state(swap_id).await?.try_into()?;
 
-    let state3 = match state {
-        // Punish potentially possible (no knowledge of cancel transaction)
-        AliceState::BtcLockTransactionSeen { state3 }
-        | AliceState::BtcLocked { state3, .. }
-        | AliceState::XmrLockTransactionSent {state3, ..}
-        | AliceState::XmrLocked {state3, ..}
-        | AliceState::XmrLockTransferProofSent {state3, ..}
-        | AliceState::EncSigLearned {state3, ..}
-        | AliceState::CancelTimelockExpired {state3, ..}
+    let (state3, monero_wallet_restore_blockheight, transfer_proof) = match state {
+        // We haven't locked our Monero yet, so do don't punish
+        AliceState::Started { .. }
+        | AliceState::BtcLockTransactionSeen { .. }
+        | AliceState::BtcLocked { .. } => bail!(Error::SwapNotPunishable(state.clone())),
+
+        // Punish might be possible, because:
+        // - We have locked our Monero
+        // - Haven't seen proof of the cancel transaction yet
+        | AliceState::XmrLockTransactionSent {state3, monero_wallet_restore_blockheight, transfer_proof}
+        | AliceState::XmrLocked {state3, monero_wallet_restore_blockheight, transfer_proof}
+        | AliceState::XmrLockTransferProofSent {state3, monero_wallet_restore_blockheight, transfer_proof}
+        | AliceState::EncSigLearned {state3, monero_wallet_restore_blockheight, transfer_proof, ..}
+        | AliceState::CancelTimelockExpired {state3, monero_wallet_restore_blockheight, transfer_proof}
+
         // Punish possible due to cancel transaction already being published
-        | AliceState::BtcCancelled {state3, ..}
-        | AliceState::BtcPunishable {state3, ..} => { state3 }
+        | AliceState::BtcCancelled {state3, monero_wallet_restore_blockheight, transfer_proof}
+        | AliceState::BtcRefunded {state3, monero_wallet_restore_blockheight, transfer_proof, ..}
+        | AliceState::BtcPunishable {state3, monero_wallet_restore_blockheight, transfer_proof}
+        | AliceState::BtcPunished {state3, monero_wallet_restore_blockheight, transfer_proof} => { (state3, monero_wallet_restore_blockheight, transfer_proof) }
+
         // The state machine is in a state where punish is theoretically impossible but we try and punish anyway as this is what the user wants
-        AliceState::BtcRedeemTransactionPublished { state3 }
-        | AliceState::BtcRefunded { state3,.. }
-        | AliceState::Started { state3 }  => { state3 }
+        AliceState::BtcRedeemTransactionPublished { .. }
         // Alice already in final state
         | AliceState::BtcRedeemed
         | AliceState::XmrRefunded
-        | AliceState::BtcPunished { .. }
         | AliceState::SafelyAborted => bail!(Error::SwapNotPunishable(state)),
     };
 
     tracing::info!(%swap_id, "Trying to manually punish swap");
 
+    // Attempt to publish the punish Bitcoin transaction
     let txid = state3.punish_btc(&bitcoin_wallet).await?;
 
+    // Construct new state
     let state = AliceState::BtcPunished {
-        state3: state3.clone(),
+        state3,
+        transfer_proof,
+        monero_wallet_restore_blockheight,
     };
+
+    // Insert new state into database
     db.insert_latest_state(swap_id, state.clone().into())
         .await?;
 

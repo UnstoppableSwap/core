@@ -296,14 +296,6 @@ async fn next_state(
             lock_transfer_proof,
             monero_wallet_restore_blockheight,
         } => {
-            event_emitter.emit_swap_progress_event(
-                swap_id,
-                TauriSwapProgressEvent::XmrLockTxInMempool {
-                    xmr_lock_txid: lock_transfer_proof.tx_hash(),
-                    xmr_lock_tx_confirmations: 0,
-                },
-            );
-
             let tx_lock_status = bitcoin_wallet.subscribe_to(state.tx_lock.clone()).await;
 
             // Check if the cancel timelock has expired
@@ -321,13 +313,14 @@ async fn next_state(
             // Clone these so that we can move them into the listener closure
             let tauri_clone = event_emitter.clone();
             let transfer_proof_clone = lock_transfer_proof.clone();
-            let watch_request = state.lock_xmr_watch_request(lock_transfer_proof);
+            let transfer_proof_for_state = lock_transfer_proof.clone();
+            let watch_request = state.lock_xmr_watch_request(lock_transfer_proof, 2);
 
             // We pass a listener to the function that get's called everytime a new confirmation is spotted.
             let watch_future = monero::wallet::watch_for_transfer_with(
                 monero_wallet.clone(),
                 watch_request,
-                Some(Box::new(move |confirmations| {
+                Some(Box::new(move |confirmations, target_confirmations| {
                     // Clone them again so that we can move them again
                     let tranfer = transfer_proof_clone.clone();
                     let tauri = tauri_clone.clone();
@@ -339,6 +332,7 @@ async fn next_state(
                             TauriSwapProgressEvent::XmrLockTxInMempool {
                                 xmr_lock_txid: tranfer.tx_hash(),
                                 xmr_lock_tx_confirmations: confirmations,
+                                xmr_lock_tx_target_confirmations: target_confirmations,
                             },
                         );
                     })
@@ -349,7 +343,7 @@ async fn next_state(
                 received_xmr = watch_future => {
                     match received_xmr {
                         Ok(()) =>
-                            BobState::XmrLocked(state.xmr_locked(monero_wallet_restore_blockheight)),
+                            BobState::XmrLocked(state.xmr_locked(monero_wallet_restore_blockheight, transfer_proof_for_state)),
                         Err(monero::InsufficientFunds { expected, actual }) => {
                             // Alice locked insufficient Monero
                             tracing::warn!(%expected, %actual, "Insufficient Monero have been locked!");
@@ -440,7 +434,45 @@ async fn next_state(
             }
         }
         BobState::BtcRedeemed(state) => {
-            event_emitter.emit_swap_progress_event(swap_id, TauriSwapProgressEvent::BtcRedeemed);
+            // Now we wait for the full 10 confirmations on the Monero lock transaction
+            // because we simply cannot spend it if we don't have 10 confirmations
+            let watch_request = state.lock_xmr_watch_request_for_sweep();
+
+            // Clone these for the closure
+            let event_emitter_clone = event_emitter.clone();
+            let transfer_proof_hash = state.transfer_proof().tx_hash();
+
+            let watch_future = monero::wallet::watch_for_transfer_with(
+                monero_wallet.clone(),
+                watch_request,
+                Some(Box::new(
+                    move |xmr_lock_tx_confirmations, xmr_lock_tx_target_confirmations| {
+                        let event_emitter = event_emitter_clone.clone();
+                        let tx_hash = transfer_proof_hash.clone();
+
+                        Box::pin(async move {
+                            if let Some(emitter) = event_emitter {
+                                emitter.emit_swap_progress_event(
+                                swap_id,
+                                TauriSwapProgressEvent::WaitingForXmrConfirmationsBeforeRedeem {
+                                    xmr_lock_txid: tx_hash,
+                                    xmr_lock_tx_confirmations,
+                                    xmr_lock_tx_target_confirmations,
+                                },
+                            );
+                            }
+                        })
+                    },
+                )),
+            );
+
+            // Wait for the 10 confirmations to complete
+            watch_future
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to wait for XMR confirmations: {}", e))?;
+
+            event_emitter
+                .emit_swap_progress_event(swap_id, TauriSwapProgressEvent::RedeemingMonero);
 
             let xmr_redeem_txids = state
                 .redeem_xmr(
@@ -522,7 +554,6 @@ async fn next_state(
         }
         BobState::BtcPunished { state, tx_lock_id } => {
             event_emitter.emit_swap_progress_event(swap_id, TauriSwapProgressEvent::BtcPunished);
-
             event_emitter.emit_swap_progress_event(
                 swap_id,
                 TauriSwapProgressEvent::AttemptingCooperativeRedeem,
@@ -532,19 +563,71 @@ async fn next_state(
             let response = event_loop_handle.request_cooperative_xmr_redeem().await;
 
             match response {
-                Ok(Fullfilled { s_a, .. }) => {
+                Ok(Fullfilled {
+                    swap_id: alice_swap_id,
+                    s_a,
+                    transfer_proof,
+                    monero_wallet_restore_blockheight,
+                }) => {
                     tracing::info!(
                         "Alice has accepted our request to cooperatively redeem the XMR"
                     );
 
-                    event_emitter.emit_swap_progress_event(
-                        swap_id,
-                        TauriSwapProgressEvent::CooperativeRedeemAccepted,
+                    // Check if the swap_id matches
+                    if swap_id != alice_swap_id {
+                        bail!("Alice accepted our request to cooperatively redeem the XMR, but the swap_id doesn't match");
+                    }
+
+                    // Check validity of the transfer proof
+                    monero::wallet::check_transfer_proof(
+                        monero_wallet.clone(),
+                        transfer_proof.clone(),
+                        monero_receive_address,
+                        state.xmr,
+                    )
+                    .await?;
+
+                    // Create State5 from State6 to access necessary fields
+                    let state5 = State5::attempt_cooperative_redeem(
+                        s_a,
+                        transfer_proof,
+                        monero_wallet_restore_blockheight,
+                        &state,
                     );
 
-                    let s_a = monero::PrivateKey { scalar: s_a };
+                    // TODO: Check if the provided key is valid before wasting time on redeeming
 
-                    let state5 = state.attempt_cooperative_redeem(s_a);
+                    let watch_request = state5.lock_xmr_watch_request_for_sweep();
+                    let event_emitter_clone = event_emitter.clone();
+                    let state5_clone = state5.clone();
+
+                    // Wait for XMR confirmations before redeeming
+                    monero::wallet::watch_for_transfer_with(
+                        monero_wallet.clone(),
+                        watch_request,
+                        Some(Box::new(move |confirmations, target_confirmations| {
+                            let event_emitter = event_emitter_clone.clone();
+                            let tx_hash = state5_clone.transfer_proof().tx_hash();
+
+                            Box::pin(async move {
+                                event_emitter.emit_swap_progress_event(
+                                    swap_id,
+                                    TauriSwapProgressEvent::WaitingForXmrConfirmationsBeforeRedeem {
+                                        xmr_lock_txid: tx_hash,
+                                        xmr_lock_tx_confirmations: confirmations,
+                                        xmr_lock_tx_target_confirmations: target_confirmations,
+                                    },
+                                );
+                            })
+                        })),
+                    )
+                    .await
+                    .map_err(|e| {
+                        anyhow::anyhow!(
+                            "Failed to wait for XMR confirmations during cooperative redeem: {}",
+                            e
+                        )
+                    })?;
 
                     match state5
                         .redeem_xmr(

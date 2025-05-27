@@ -1,4 +1,4 @@
-use crate::monero::Scalar;
+use crate::monero::{Scalar, TransferProof};
 use crate::network::cooperative_xmr_redeem_after_punish::CooperativeXmrRedeemRejectReason;
 use crate::network::quote::BidQuote;
 use crate::network::rendezvous::XmrBtcNamespace;
@@ -14,6 +14,7 @@ use libp2p::request_response::{
 };
 use libp2p::swarm::NetworkBehaviour;
 use libp2p::{identify, identity, ping, PeerId};
+use monero_rpc::wallet::BlockHeight;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -36,6 +37,8 @@ pub enum OutEvent {
         id: OutboundRequestId,
         s_a: Scalar,
         swap_id: uuid::Uuid,
+        transfer_proof: TransferProof,
+        monero_wallet_restore_blockheight: BlockHeight,
     },
     CooperativeXmrRedeemRejected {
         id: OutboundRequestId,

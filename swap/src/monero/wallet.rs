@@ -3,7 +3,7 @@ use crate::monero::{
     Amount, InsufficientFunds, PrivateViewKey, PublicViewKey, TransferProof, TxHash,
 };
 use ::monero::{Address, Network, PrivateKey, PublicKey};
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use monero_rpc::wallet::{BlockHeight, MoneroWalletRpc as _, Refreshed};
 use monero_rpc::{jsonrpc, wallet};
 use std::future::Future;
@@ -399,15 +399,45 @@ pub struct WatchRequest {
     pub expected: Amount,
 }
 
+/// This checks if the transfer proof is valid
+/// and if it pays to the correct address
+pub(crate) async fn check_transfer_proof(
+    wallet: Arc<Mutex<Wallet>>,
+    transfer_proof: TransferProof,
+    to_address: Address,
+    expected: Amount,
+) -> Result<()> {
+    let txid = transfer_proof.tx_hash().to_string();
+    let tx_key = transfer_proof.tx_key().to_string();
+    let to_address = to_address.to_string();
+
+    let result = wallet
+        .lock()
+        .await
+        .inner
+        .check_tx_key(txid, tx_key, to_address)
+        .await?;
+
+    if result.received != expected.as_piconero() {
+        bail!(
+            "Transfer proof is invalid but received {} piconero instead of expected {} piconero",
+            result.received,
+            expected.as_piconero()
+        );
+    }
+
+    Ok(())
+}
+
 /// This is a shorthand for the dynamic type we use to pass listeners to
 /// i.e. the `wait_for_confirmations` function. It is basically
-/// an `async fn` which takes a `u64` and returns nothing, but in dynamic.
+/// an `async fn` which takes a `(u64: confirmations, u64: target_confirmations)` and returns nothing, but in dynamic.
 ///
 /// We use this to pass a listener that sends events to the tauri
 /// frontend to show upates to the number of confirmations that
 /// a tx has.
 type ConfirmationListener =
-    Box<dyn Fn(u64) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> + Send + 'static>;
+    Box<dyn Fn(u64, u64) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> + Send + 'static>;
 
 #[allow(clippy::too_many_arguments)]
 async fn wait_for_confirmations_with<
@@ -509,7 +539,7 @@ async fn wait_for_confirmations_with<
 
             // notify the listener we received new confirmations
             if let Some(listener) = &listener {
-                listener(seen_confirmations).await;
+                listener(seen_confirmations, conf_target).await;
             }
         }
     }

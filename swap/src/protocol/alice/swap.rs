@@ -477,7 +477,11 @@ where
             let punish = state3.punish_btc(bitcoin_wallet).await;
 
             match punish {
-                Ok(_) => AliceState::BtcPunished { state3 },
+                Ok(_) => AliceState::BtcPunished {
+                    state3,
+                    transfer_proof,
+                    monero_wallet_restore_blockheight,
+                },
                 Err(error) => {
                     tracing::warn!("Failed to publish punish transaction: {:#}", error);
 
@@ -508,7 +512,15 @@ where
         }
         AliceState::XmrRefunded => AliceState::XmrRefunded,
         AliceState::BtcRedeemed => AliceState::BtcRedeemed,
-        AliceState::BtcPunished { state3 } => AliceState::BtcPunished { state3 },
+        AliceState::BtcPunished {
+            state3,
+            transfer_proof,
+            monero_wallet_restore_blockheight,
+        } => AliceState::BtcPunished {
+            state3,
+            transfer_proof,
+            monero_wallet_restore_blockheight,
+        },
         AliceState::SafelyAborted => AliceState::SafelyAborted,
     })
 }

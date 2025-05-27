@@ -380,7 +380,7 @@ where
                             // If we are in either of these states, the punish timelock has expired
                             // Bob cannot refund the Bitcoin anymore. We can publish tx_punish to redeem the Bitcoin.
                             // Therefore it is safe to reveal s_a to let him redeem the Monero
-                            let State::Alice (AliceState::BtcPunished { state3 } | AliceState::BtcPunishable { state3, .. }) = swap_state else {
+                            let State::Alice (AliceState::BtcPunished { state3, monero_wallet_restore_blockheight, transfer_proof } | AliceState::BtcPunishable { state3, monero_wallet_restore_blockheight, transfer_proof, .. }) = swap_state else {
                                 tracing::warn!(
                                     swap_id = %swap_id,
                                     reason = "swap is in invalid state",
@@ -392,7 +392,7 @@ where
                                 continue;
                             };
 
-                            if self.swarm.behaviour_mut().cooperative_xmr_redeem.send_response(channel, Fullfilled { swap_id, s_a: state3.s_a }).is_err() {
+                            if self.swarm.behaviour_mut().cooperative_xmr_redeem.send_response(channel, Fullfilled { swap_id, s_a: state3.s_a, transfer_proof, monero_wallet_restore_blockheight }).is_err() {
                                 tracing::error!(peer = %peer, "Failed to respond to cooperative XMR redeem request");
                                 continue;
                             }
