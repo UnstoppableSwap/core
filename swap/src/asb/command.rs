@@ -96,6 +96,7 @@ where
         RawCommand::ExportMoneroWallet => Arguments {
             testnet,
             json,
+            trace,
             config_path: config_path(config, testnet)?,
             env_config: env_config(testnet),
             cmd: Command::ExportMoneroWallet,
