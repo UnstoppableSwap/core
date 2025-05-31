@@ -404,6 +404,16 @@ pub async fn main() -> Result<()> {
             let wallet_export = bitcoin_wallet.wallet_export("asb").await?;
             println!("{}", wallet_export)
         }
+        Command::ExportMoneroWallet => {
+            let monero_wallet = init_monero_wallet(&config, env_config).await?;
+            let main_wallet = monero_wallet.main_wallet().await;
+
+            let seed = main_wallet.seed().await;
+            let creation_height = main_wallet.creation_height().await;
+
+            println!("Seed: {seed}");
+            println!("Creation height: {creation_height}");
+        }
     }
 
     Ok(())

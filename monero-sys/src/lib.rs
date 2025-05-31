@@ -125,22 +125,28 @@ impl WalletHandle {
     ) -> anyhow::Result<Self> {
         let (call_sender, call_receiver) = unbounded_channel();
 
-        std::thread::spawn(move || {
-            let wallet_name = path
-                .split('/')
-                .last()
-                .map(ToString::to_string)
-                .unwrap_or(path.clone());
-            let mut manager = WalletManager::new(daemon.clone(), &wallet_name)
-                .expect("wallet manager to be created");
-            let wallet = manager
-                .open_or_create_wallet(&path, None, network, background_sync, daemon.clone())
-                .expect("wallet to be created");
+        let wallet_name = path
+            .split('/')
+            .last()
+            .map(ToString::to_string)
+            .unwrap_or(path.clone());
 
-            let mut wrapped_wallet = Wallet::new(wallet, manager, call_receiver);
+        let thread_name = format!("wallet-{}", wallet_name);
 
-            wrapped_wallet.run();
-        });
+        std::thread::Builder::new()
+            .name(thread_name)
+            .spawn(move || {
+                let mut manager = WalletManager::new(daemon.clone(), &wallet_name)
+                    .expect("wallet manager to be created");
+                let wallet = manager
+                    .open_or_create_wallet(&path, None, network, background_sync, daemon.clone())
+                    .expect("wallet to be created");
+
+                let mut wrapped_wallet = Wallet::new(wallet, manager, call_receiver);
+
+                wrapped_wallet.run();
+            })
+            .context("Couldn't start wallet thread")?;
 
         // Ensure the wallet was created successfully by performing a dummy call
         let wallet = WalletHandle { call_sender };
@@ -165,45 +171,56 @@ impl WalletHandle {
     ) -> anyhow::Result<Self> {
         let (call_sender, call_receiver) = unbounded_channel();
 
+        let wallet_name = path
+            .split('/')
+            .last()
+            .map(ToString::to_string)
+            .unwrap_or(path.clone());
+
+        let thread_name = format!("wallet-{}", wallet_name);
+
         // Spawn the wallet thread – all interactions with the wallet must
         // happen on the same OS thread.
-        std::thread::spawn(move || {
-            let wallet_name = path
-                .split('/')
-                .last()
-                .map(ToString::to_string)
-                .unwrap_or(path.clone());
+        std::thread::Builder::new()
+            .name(thread_name)
+            .spawn(move || {
+                // Create the wallet manager in this thread first.
+                let mut manager = WalletManager::new(daemon.clone(), &wallet_name)
+                    .expect("wallet manager to be created");
 
-            // Create the wallet manager in this thread first.
-            let mut manager = WalletManager::new(daemon.clone(), &wallet_name)
-                .expect("wallet manager to be created");
+                // Decide whether we have to open an existing wallet or recover it
+                // from the mnemonic.
+                let wallet = if manager.wallet_exists(&path) {
+                    // Existing wallet – open it.
+                    manager
+                        .open_or_create_wallet(
+                            &path,
+                            None,
+                            network,
+                            background_sync,
+                            daemon.clone(),
+                        )
+                        .expect("wallet to be opened")
+                } else {
+                    // Wallet does not exist – recover it from the seed.
+                    manager
+                        .recover_wallet(
+                            &path,
+                            None,
+                            &mnemonic,
+                            network,
+                            restore_height,
+                            background_sync,
+                            daemon.clone(),
+                        )
+                        .expect("wallet to be recovered from seed")
+                };
 
-            // Decide whether we have to open an existing wallet or recover it
-            // from the mnemonic.
-            let wallet = if manager.wallet_exists(&path) {
-                // Existing wallet – open it.
-                manager
-                    .open_or_create_wallet(&path, None, network, background_sync, daemon.clone())
-                    .expect("wallet to be opened")
-            } else {
-                // Wallet does not exist – recover it from the seed.
-                manager
-                    .recover_wallet(
-                        &path,
-                        None,
-                        &mnemonic,
-                        network,
-                        restore_height,
-                        background_sync,
-                        daemon.clone(),
-                    )
-                    .expect("wallet to be recovered from seed")
-            };
+                let mut wrapped_wallet = Wallet::new(wallet, manager, call_receiver);
 
-            let mut wrapped_wallet = Wallet::new(wallet, manager, call_receiver);
-
-            wrapped_wallet.run();
-        });
+                wrapped_wallet.run();
+            })
+            .context("Couldn't start wallet thread")?;
 
         let wallet = WalletHandle { call_sender };
         // Make a test call to ensure that the wallet is created.
@@ -232,34 +249,45 @@ impl WalletHandle {
     ) -> anyhow::Result<Self> {
         let (call_sender, call_receiver) = unbounded_channel();
 
-        std::thread::spawn(move || {
-            let wallet_name = path
-                .split('/')
-                .last()
-                .map(ToString::to_string)
-                .unwrap_or(path.clone());
+        let wallet_name = path
+            .split('/')
+            .last()
+            .map(ToString::to_string)
+            .unwrap_or(path.clone());
 
-            let mut manager = WalletManager::new(daemon.clone(), &wallet_name)
-                .expect("wallet manager to be created");
+        let thread_name = format!("wallet-{}", wallet_name);
 
-            let wallet = manager
-                .open_or_create_wallet_from_keys(
-                    &path,
-                    password.as_deref(),
-                    network,
-                    &address,
-                    view_key,
-                    spend_key,
-                    restore_height,
-                    background_sync,
-                    daemon.clone(),
-                )
-                .expect("wallet to be opened or created from keys");
+        std::thread::Builder::new()
+            .name(thread_name)
+            .spawn(move || {
+                let wallet_name = path
+                    .split('/')
+                    .last()
+                    .map(ToString::to_string)
+                    .unwrap_or(path.clone());
 
-            let mut wrapped_wallet = Wallet::new(wallet, manager, call_receiver);
+                let mut manager = WalletManager::new(daemon.clone(), &wallet_name)
+                    .expect("wallet manager to be created");
 
-            wrapped_wallet.run();
-        });
+                let wallet = manager
+                    .open_or_create_wallet_from_keys(
+                        &path,
+                        password.as_deref(),
+                        network,
+                        &address,
+                        view_key,
+                        spend_key,
+                        restore_height,
+                        background_sync,
+                        daemon.clone(),
+                    )
+                    .expect("wallet to be opened or created from keys");
+
+                let mut wrapped_wallet = Wallet::new(wallet, manager, call_receiver);
+
+                wrapped_wallet.run();
+            })
+            .context("Couldn't start wallet thread")?;
 
         let wallet = WalletHandle { call_sender };
         // Make a test call to ensure that the wallet is created.
@@ -361,6 +389,16 @@ impl WalletHandle {
         let ratios = ratios.to_vec();
         self.call(move |wallet| wallet.sweep_multi(&addresses, &ratios))
             .await
+    }
+
+    /// Get the seed of the wallet.
+    pub async fn seed(&self) -> String {
+        self.call(move |wallet| wallet.seed()).await
+    }
+
+    /// Get the creation height of the wallet.
+    pub async fn creation_height(&self) -> u64 {
+        self.call(move |wallet| wallet.creation_height()).await
     }
 
     /// Get the unlocked balance of the wallet.
@@ -604,17 +642,26 @@ impl Wallet {
                 .send(result)
                 .expect("failed to send result back to caller");
         }
-    }
-}
 
-impl Drop for Wallet {
-    fn drop(&mut self) {
-        if let Err(e) = self.manager.close_wallet(&mut self.wallet) {
+        tracing::info!(
+            wallet=%self.wallet.path(),
+            "Wallet handle dropped, closing wallet and exiting thread",
+        );
+
+        let result = self.manager.close_wallet(&mut self.wallet);
+
+        if let Err(e) = result {
             tracing::error!("Failed to close wallet: {}", e);
             // If we fail to close the wallet, we can't do anything about it.
             // This results in it being leaked.
         }
         // TODO: dispose of the manager
+
+        // Uninstall the log callback.
+        // We need to do this because easylogging++ may send logs after we end this thread, leading
+        // to a tracing panic.
+
+        bridge::log::uninstall_log_callback();
     }
 }
 
@@ -1054,6 +1101,11 @@ impl FfiWallet {
         Ok(())
     }
 
+    /// Get the wallet creation height.
+    fn creation_height(&self) -> u64 {
+        self.inner.getRefreshFromBlockHeight()
+    }
+
     /// Get the current blockchain height.
     fn blockchain_height(&self) -> u64 {
         self.inner.blockChainHeight()
@@ -1375,6 +1427,12 @@ impl FfiWallet {
             error_type,
             error_string.to_string()
         ))
+    }
+
+    /// Get the seed of the wallet.
+    fn seed(&self) -> String {
+        let_cxx_string!(seed = "");
+        ffi::walletSeed(&self.inner, &seed).to_string()
     }
 }
 

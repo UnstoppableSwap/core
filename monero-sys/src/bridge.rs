@@ -1,4 +1,5 @@
 use cxx::CxxString;
+use tracing::Level;
 
 /// This is the main ffi module that exposes the Monero C++ API to Rust.
 /// See [cxx.rs](https://cxx.rs/book/ffi-modules.html) for more information
@@ -149,6 +150,9 @@ pub mod ffi {
 
         /// Get the seed of the wallet.
         fn walletSeed(wallet: &Wallet, seed_offset: &CxxString) -> UniquePtr<CxxString>;
+
+        /// Get the wallet creation height.
+        fn getRefreshFromBlockHeight(self: &Wallet) -> u64;
 
         /// Check whether the wallet is connected to the daemon.
         fn connected(self: &Wallet) -> ConnectionStatus;
@@ -301,6 +305,7 @@ pub mod log {
         include!("bridge.h");
 
         fn install_log_callback(span_name: &CxxString);
+        fn uninstall_log_callback();
     }
 }
 
@@ -314,36 +319,71 @@ fn forward_cpp_log(
     func: &CxxString,
     msg: &CxxString,
 ) {
-    let _file_str = file.to_string();
-    let msg_str = msg.to_string();
-    let func_str = func.to_string();
-
-    // We don't want to log the performance timer.
-    if func_str.starts_with("tools::LoggingPerformanceTimer")
-        || msg_str.starts_with("Processed block: <")
-        || msg_str.starts_with("Found new pool tx: <")
-    {
+    if std::thread::panicking() {
         return;
     }
 
-    match level {
-        0 => {
-            tracing::trace!(target: "monero_cpp", wallet=%span_name, function=func_str, "{}", msg_str)
+    let msg = msg.to_string();
+    let span_name = span_name.to_string();
+    let file = file.to_string();
+    let func = func.to_string();
+
+    // Silence the default panic hook while we probe tracing so potential TLS
+    // panics do not get printed to stderr even though we recover them.
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+
+    let result = std::panic::catch_unwind(|| tracing::span!(Level::TRACE, "probe"));
+
+    // Restore the original hook irrespective of whether the probe panicked.
+    std::panic::set_hook(default_hook);
+
+    if result.is_err() {
+        println!("Tracing is no longer functional, skipping log: {msg}");
+        return;
+    }
+
+    // Ensure that any panic happening during logging is caught so it does **not**
+    // unwind across the FFI boundary (which would otherwise lead to an abort).
+    // This typically happens when `tracing` accesses thread-local storage after
+    // it has already been torn down at thread shutdown.
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // We can't log while already panicking – ignore logs in that case.
+        if std::thread::panicking() {
+            return;
         }
-        1 => {
-            tracing::debug!(target: "monero_cpp", wallet=%span_name, function=func_str, "{}", msg_str)
+
+        let _file_str = file.to_string();
+        let msg_str = msg.to_string();
+        let func_str = func.to_string();
+
+        // We don't want to log the performance timer.
+        if func_str.starts_with("tools::LoggingPerformanceTimer")
+            || msg_str.starts_with("Processed block: <")
+            || msg_str.starts_with("Found new pool tx: <")
+        {
+            return;
         }
-        2 => {
-            tracing::info!(target: "monero_cpp", wallet=%span_name, function=func_str, "{}", msg_str)
-        }
-        3 => {
-            tracing::warn!(target: "monero_cpp", wallet=%span_name, function=func_str, "{}", msg_str)
-        }
-        4 => {
-            tracing::error!(target: "monero_cpp", wallet=%span_name, function=func_str, "{}", msg_str)
-        }
-        _ => {
-            tracing::info!(target: "monero_cpp", wallet=%span_name, function=func_str, "{}", msg_str)
-        }
-    };
+
+        match level {
+            0 => {
+                tracing::trace!(target: "monero_cpp", wallet=%span_name, function=func_str, "{}", msg_str)
+            }
+            1 => {
+                tracing::debug!(target: "monero_cpp", wallet=%span_name, function=func_str, "{}", msg_str)
+            }
+            2 => {
+                tracing::info!(target: "monero_cpp", wallet=%span_name, function=func_str, "{}", msg_str)
+            }
+            3 => {
+                tracing::warn!(target: "monero_cpp", wallet=%span_name, function=func_str, "{}", msg_str)
+            }
+            4 => {
+                tracing::error!(target: "monero_cpp", wallet=%span_name, function=func_str, "{}", msg_str)
+            }
+            _ => {
+                tracing::info!(target: "monero_cpp", wallet=%span_name, function=func_str, "{}", msg_str)
+            }
+        };
+    }));
 }

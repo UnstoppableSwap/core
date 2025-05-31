@@ -236,6 +236,9 @@ namespace monero_rust_log
     protected:
         void handle(const el::LogDispatchData *data) noexcept override
         {
+            if (!installed)
+                return;
+
             // Get the log message.
             auto *m = data->logMessage();
 
@@ -310,5 +313,16 @@ namespace monero_rust_log
         perfConf.set(el::Level::Global, el::ConfigurationType::Enabled, "false");
         el::Logger *perfLogger = el::Loggers::getLogger("PERF");
         perfLogger->configure(perfConf);
+    }
+
+    /**
+     * Uninstall the log callback
+     */
+    inline void uninstall_log_callback()
+    {
+        el::Helpers::uninstallLogDispatchCallback<RustDispatch>("rust-forward");
+        el::Loggers::flushAll();
+
+        installed = false;
     }
 } // namespace
