@@ -18,6 +18,7 @@ use libp2p::Swarm;
 use monero_sys::Daemon;
 use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::Decimal;
+use swap::monero::wallet_rpc::choose_monero_node;
 use std::convert::TryInto;
 use std::env;
 use std::sync::Arc;
@@ -440,9 +441,11 @@ async fn init_monero_wallet(
 ) -> Result<Arc<monero::Wallets>> {
     tracing::debug!("Initializing Monero wallets");
 
+    let daemon = choose_monero_node(config.monero.network).await?;
+    let daemon_str = daemon.to_string();
     let daemon = Daemon {
-        address: config.monero.wallet_rpc_url.to_string(),
-        ssl: config.monero.wallet_rpc_url.as_str().contains("https"),
+        address: daemon_str,
+        ssl: false,
     };
 
     let manager = monero::Wallets::new(
