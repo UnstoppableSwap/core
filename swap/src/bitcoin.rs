@@ -1,6 +1,7 @@
 pub mod wallet;
 
 mod cancel;
+mod early_refund;
 mod lock;
 mod punish;
 mod redeem;
@@ -8,6 +9,7 @@ mod refund;
 mod timelocks;
 
 pub use crate::bitcoin::cancel::{CancelTimelock, PunishTimelock, TxCancel};
+pub use crate::bitcoin::early_refund::TxEarlyRefund;
 pub use crate::bitcoin::lock::TxLock;
 pub use crate::bitcoin::punish::TxPunish;
 pub use crate::bitcoin::redeem::TxRedeem;

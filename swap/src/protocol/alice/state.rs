@@ -1,6 +1,6 @@
 use crate::bitcoin::{
     current_epoch, CancelTimelock, ExpiredTimelocks, PunishTimelock, Transaction, TxCancel,
-    TxPunish, TxRedeem, TxRefund, Txid,
+    TxEarlyRefund, TxPunish, TxRedeem, TxRefund, Txid,
 };
 use crate::env::Config;
 use crate::monero::wallet::{watch_for_transfer, TransferRequest, WatchRequest};
@@ -79,7 +79,13 @@ pub enum AliceState {
     BtcPunished {
         state3: Box<State3>,
     },
+    EarlyRefundable {
+        state3: Box<State3>,
+    },
     SafelyAborted,
+    EarlyRefunded {
+        tx_early_refund_txid: bitcoin::Txid,
+    },
 }
 
 impl fmt::Display for AliceState {
@@ -107,6 +113,8 @@ impl fmt::Display for AliceState {
             AliceState::BtcPunishable { .. } => write!(f, "btc is punishable"),
             AliceState::XmrRefunded => write!(f, "xmr is refunded"),
             AliceState::CancelTimelockExpired { .. } => write!(f, "cancel timelock is expired"),
+            AliceState::EarlyRefundable { .. } => write!(f, "early refundable"),
+            AliceState::EarlyRefunded { .. } => write!(f, "early refunded"),
         }
     }
 }
@@ -334,6 +342,7 @@ impl State2 {
     }
 
     pub fn receive(self, msg: Message4) -> Result<State3> {
+        // Create the TxCancel transaction ourself
         let tx_cancel = bitcoin::TxCancel::new(
             &self.tx_lock,
             self.cancel_timelock,
@@ -341,16 +350,30 @@ impl State2 {
             self.B,
             self.tx_cancel_fee,
         )?;
+
+        // Check if the provided signature by Bob is valid for the transaction
         bitcoin::verify_sig(&self.B, &tx_cancel.digest(), &msg.tx_cancel_sig)
             .context("Failed to verify cancel transaction")?;
+
+        // Create the TxPunish transaction ourself
         let tx_punish = bitcoin::TxPunish::new(
             &tx_cancel,
             &self.punish_address,
             self.punish_timelock,
             self.tx_punish_fee,
         );
+
+        // Check if the provided signature by Bob is valid for the transaction
         bitcoin::verify_sig(&self.B, &tx_punish.digest(), &msg.tx_punish_sig)
             .context("Failed to verify punish transaction")?;
+
+        // Create the TxEarlyRefund transaction ourself
+        let tx_early_refund =
+            bitcoin::TxEarlyRefund::new(&self.tx_lock, &self.refund_address, self.tx_refund_fee);
+
+        // Check if the provided signature by Bob is valid for the transaction
+        bitcoin::verify_sig(&self.B, &tx_early_refund.digest(), &msg.tx_early_refund_sig)
+            .context("Failed to verify early refund transaction")?;
 
         Ok(State3 {
             a: self.a,
@@ -369,6 +392,7 @@ impl State2 {
             tx_lock: self.tx_lock,
             tx_punish_sig_bob: msg.tx_punish_sig,
             tx_cancel_sig_bob: msg.tx_cancel_sig,
+            tx_early_refund_sig_bob: msg.tx_early_refund_sig,
             tx_redeem_fee: self.tx_redeem_fee,
             tx_punish_fee: self.tx_punish_fee,
             tx_refund_fee: self.tx_refund_fee,
@@ -399,6 +423,7 @@ pub struct State3 {
     pub tx_lock: bitcoin::TxLock,
     tx_punish_sig_bob: bitcoin::Signature,
     tx_cancel_sig_bob: bitcoin::Signature,
+    tx_early_refund_sig_bob: bitcoin::Signature,
     #[serde(with = "::bitcoin::amount::serde::as_sat")]
     tx_redeem_fee: bitcoin::Amount,
     #[serde(with = "::bitcoin::amount::serde::as_sat")]
@@ -475,6 +500,10 @@ impl State3 {
 
     pub fn tx_redeem(&self) -> TxRedeem {
         TxRedeem::new(&self.tx_lock, &self.redeem_address, self.tx_redeem_fee)
+    }
+
+    pub fn tx_early_refund(&self) -> TxEarlyRefund {
+        bitcoin::TxEarlyRefund::new(&self.tx_lock, &self.refund_address, self.tx_refund_fee)
     }
 
     pub fn extract_monero_private_key(
@@ -576,6 +605,15 @@ impl State3 {
         self.tx_punish()
             .complete(self.tx_punish_sig_bob.clone(), self.a.clone(), self.B)
             .context("Failed to complete Bitcoin punish transaction")
+    }
+
+    pub fn signed_early_refund_transaction(&self) -> Result<bitcoin::Transaction> {
+        let tx_early_refund = self.tx_early_refund();
+        let tx = tx_early_refund
+            .complete(self.tx_early_refund_sig_bob.clone(), self.a.clone(), self.B)
+            .context("Failed to complete Bitcoin early refund transaction")?;
+
+        Ok(tx)
     }
 
     fn tx_punish(&self) -> TxPunish {

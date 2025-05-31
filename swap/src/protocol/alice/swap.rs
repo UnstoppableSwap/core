@@ -107,7 +107,8 @@ where
                         minutes = %env_config.bitcoin_lock_confirmed_timeout.as_secs_f64() / 60.0,
                         "TxLock lock did not get enough confirmations in time",
                     );
-                    AliceState::SafelyAborted
+
+                    AliceState::EarlyRefundable { state3 }
                 }
                 Ok(res) => {
                     res?;
@@ -116,10 +117,13 @@ where
             }
         }
         AliceState::BtcLocked { state3 } => {
+            // If we do not manage to lock the Monero funds within 2 minutes, we will give up
+            const MAX_MONERO_LOCK_TIME: Duration = Duration::from_secs(120);
+
             // We will retry indefinitely to lock the Monero funds, until the swap is cancelled
             // Sometimes locking the Monero can fail e.g due to the daemon not being fully synced
             let backoff = backoff::ExponentialBackoffBuilder::new()
-                .with_max_elapsed_time(None)
+                .with_max_elapsed_time(Some(MAX_MONERO_LOCK_TIME))
                 .with_max_interval(Duration::from_secs(60))
                 .build();
 
@@ -159,12 +163,11 @@ where
                     wait_time.as_secs()
                 )
             })
-            .await
-            .expect("We should never run out of retries while locking Monero");
+            .await;
 
             match transfer_proof {
                 // If the transfer was successful, we transition to the next state
-                Some((monero_wallet_restore_blockheight, transfer_proof)) => {
+                Ok(Some((monero_wallet_restore_blockheight, transfer_proof))) => {
                     AliceState::XmrLockTransactionSent {
                         monero_wallet_restore_blockheight,
                         transfer_proof,
@@ -173,13 +176,41 @@ where
                 }
                 // If we were not able to lock the Monero funds before the timelock expired,
                 // we can safely abort the swap because we did not lock any funds
-                None => {
+                Ok(None) => {
                     tracing::info!(
                         swap_id = %swap_id,
                         "We did not manage to lock the Monero funds before the timelock expired. Aborting swap."
                     );
-                    AliceState::SafelyAborted
+                    AliceState::EarlyRefundable { state3 }
                 }
+                Err(e) => {
+                    tracing::error!(
+                        swap_id = %swap_id,
+                        error = ?e,
+                        "Failed to lock Monero within {} seconds",
+                        MAX_MONERO_LOCK_TIME.as_secs()
+                    );
+
+                    AliceState::EarlyRefundable { state3 }
+                }
+            }
+        }
+        AliceState::EarlyRefundable { state3 } => {
+            let tx_early_refund = state3.signed_early_refund_transaction()?;
+
+            let txid = tx_early_refund.compute_txid();
+
+            let (_, _) = bitcoin_wallet
+                .broadcast(tx_early_refund, "early_refund")
+                .await?;
+
+            tracing::info!(
+                %txid,
+                "Unilaterally refunded Bitcoin"
+            );
+
+            AliceState::EarlyRefunded {
+                tx_early_refund_txid: txid,
             }
         }
         AliceState::XmrLockTransactionSent {
@@ -509,6 +540,11 @@ where
         AliceState::XmrRefunded => AliceState::XmrRefunded,
         AliceState::BtcRedeemed => AliceState::BtcRedeemed,
         AliceState::BtcPunished { state3 } => AliceState::BtcPunished { state3 },
+        AliceState::EarlyRefunded {
+            tx_early_refund_txid,
+        } => AliceState::EarlyRefunded {
+            tx_early_refund_txid,
+        },
         AliceState::SafelyAborted => AliceState::SafelyAborted,
     })
 }
@@ -520,6 +556,7 @@ pub fn is_complete(state: &AliceState) -> bool {
             | AliceState::BtcRedeemed
             | AliceState::BtcPunished { .. }
             | AliceState::SafelyAborted
+            | AliceState::EarlyRefunded { .. }
     )
 }
 
