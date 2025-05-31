@@ -37,7 +37,7 @@ pub fn init(
         "swap",
         "asb",
         "libp2p_community_tor",
-        "unstoppableswap-gui-rs",
+        "unstoppableswap_gui_rs",
         "arti",
     ];
     let OUR_CRATES: Vec<&str> = vec!["swap", "asb"];

@@ -188,7 +188,7 @@ pub struct Context {
     bitcoin_wallet: Option<Arc<bitcoin::Wallet>>,
     monero_wallet: Option<Arc<TokioMutex<monero::Wallet>>>,
     monero_rpc_process: Option<Arc<SyncMutex<monero::WalletRpcProcess>>>,
-    tor_client: Option<Arc<TorClient<TokioRustlsRuntime>>>,
+    pub tor_client: Option<Arc<TorClient<TokioRustlsRuntime>>>,
 }
 
 /// A conveniant builder struct for [`Context`].

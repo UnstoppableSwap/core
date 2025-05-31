@@ -431,6 +431,18 @@ impl Request for RedactArgs {
 }
 
 #[typeshare]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct FetchArgs {
+    pub url: String,
+}
+
+#[typeshare]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct FetchResponse {
+    pub response: String,
+}
+
+#[typeshare]
 #[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct GetMoneroAddressesArgs;
 

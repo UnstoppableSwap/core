@@ -17,9 +17,13 @@ monero_sys:
 	just update_submodules
 	cd monero-sys && cargo build
 
-# Start the Tauri app
+# Start the Tauri app on testnet
 tauri:
 	cd src-tauri && cargo tauri dev --no-watch -- -- --testnet
+
+# Start the Tauri app on mainnet
+tauri_mainnet:
+	cd src-tauri && cargo tauri dev --no-watch
 
 # Install the GUI dependencies
 gui_install:

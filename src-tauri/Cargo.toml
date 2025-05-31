@@ -1,7 +1,7 @@
 [package]
 name = "unstoppableswap-gui-rs"
 version = "1.1.2"
-authors = [ "binarybaron", "einliterflasche", "unstoppableswap" ]
+authors = ["binarybaron", "einliterflasche", "unstoppableswap"]
 edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -9,19 +9,22 @@ description = "GUI for XMR<>BTC Atomic Swaps written in Rust"
 
 [lib]
 name = "unstoppableswap_gui_rs_lib"
-crate-type = [ "lib", "cdylib", "staticlib" ]
+crate-type = ["lib", "cdylib", "staticlib"]
 
 [build-dependencies]
-tauri-build = { version = "^2.0.0", features = [ "config-json5" ] }
+tauri-build = { version = "^2.0.0", features = ["config-json5"] }
 
 [dependencies]
 anyhow = "1"
+http-body-util = "0.1.3"
+hyper = { version = "1.6.0", features = ["client", "http1"] }
+hyper-util = "0.1.12"
 rustls = { version = "0.23.26", default-features = false, features = ["ring"] }
-serde = { version = "1", features = [ "derive" ] }
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-swap = { path = "../swap", features = [ "tauri" ] }
+swap = { path = "../swap", features = ["tauri"] }
 sysinfo = "=0.32.1"
-tauri = { version = "^2.0.0", features = [ "config-json5" ] }
+tauri = { version = "^2.0.0", features = ["config-json5"] }
 tauri-plugin-clipboard-manager = "^2.0.0"
 tauri-plugin-dialog = "2.2.2"
 tauri-plugin-opener = "^2.0.0"
@@ -29,6 +32,7 @@ tauri-plugin-process = "^2.0.0"
 tauri-plugin-shell = "^2.0.0"
 tauri-plugin-store = "^2.0.0"
 tauri-plugin-updater = "^2.0.0"
+tokio = { version = "1.45.1", features = ["full"] }
 tracing = "0.1"
 uuid = "1.16.0"
 zip = "4.0.0"
