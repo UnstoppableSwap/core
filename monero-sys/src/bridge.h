@@ -129,6 +129,47 @@ namespace Monero
         return wallet.createTransaction(dest_address, "", Monero::optional<uint64_t>(), 0, PendingTransaction::Priority_Default);
     }
 
+    inline PendingTransaction *createMultiSweepTransaction(
+        Wallet &wallet,
+        const std::vector<std::string> &dest_addresses,
+        const std::vector<double> &sweep_ratios)
+    {
+        size_t N = dest_addresses.size();
+        if (N == 0 || sweep_ratios.size() != N)
+            return nullptr;
+
+        uint64_t bal = wallet.unlockedBalance();
+        std::vector<uint64_t> amounts(N);
+        uint64_t sum = 0;
+        for (size_t i = 0; i + 1 < N; ++i) {
+            amounts[i] = static_cast<uint64_t>(std::floor(bal * sweep_ratios[i]));
+            sum += amounts[i];
+        }
+        // reserve last slot for fee carve‐out
+        amounts[N-1] = 0;
+
+        // build temporary dest list for fee estimation
+        std::vector<std::pair<std::string,uint64_t>> fee_dests;
+        fee_dests.reserve(N);
+        for (size_t i = 0; i < N; ++i)
+            fee_dests.emplace_back(dest_addresses[i], amounts[i]);
+
+        // ask wallet to estimate fee assuming N outputs + 1 change
+        uint64_t fee = wallet.estimateTransactionFee(fee_dests, PendingTransaction::Priority_Default);
+
+        // carve the fee out of the last output, so sum(amounts)+fee == balance
+        amounts[N-1] = bal - sum - fee;
+
+        // build the actual multi‐dest transaction (no change left ⇒ wallet drops it)
+        return wallet.createTransactionMultDest(
+            dest_addresses,
+            /*payment_id=*/"",
+            Monero::optional<std::vector<uint64_t>>(amounts),
+            /*mixin_count=*/0,
+            PendingTransaction::Priority_Default
+        );
+    }
+
     inline bool setWalletDaemon(Wallet &wallet, const std::string &daemon_address)
     {
         return wallet.setDaemon(daemon_address);
@@ -163,6 +204,13 @@ namespace Monero
     inline std::unique_ptr<std::vector<std::string>> pendingTransactionTxIds(const PendingTransaction &tx)
     {
         return std::make_unique<std::vector<std::string>>(tx.txid());
+    }
+
+    inline void vector_string_push_back(
+        std::vector<std::string> &v,
+        const std::string &s
+    ) {
+        v.push_back(s);
     }
 }
 

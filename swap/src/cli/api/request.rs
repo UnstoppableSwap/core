@@ -6,6 +6,7 @@ use crate::cli::{list_sellers as list_sellers_impl, EventLoop, Seller, SellerSta
 use crate::common::{get_logs, redact};
 use crate::libp2p_ext::MultiAddrExt;
 use crate::monero::wallet_rpc::MoneroDaemon;
+use crate::monero::MoneroAddressPool;
 use crate::network::quote::{BidQuote, ZeroQuoteReceived};
 use crate::network::swarm;
 use crate::protocol::bob::{BobState, Swap};
@@ -58,8 +59,7 @@ pub struct BuyXmrArgs {
     pub seller: Multiaddr,
     #[typeshare(serialized_as = "Option<string>")]
     pub bitcoin_change_address: Option<bitcoin::Address<NetworkUnchecked>>,
-    #[typeshare(serialized_as = "string")]
-    pub monero_receive_address: monero::Address,
+    pub monero_receive_pool: MoneroAddressPool,
 }
 
 #[typeshare]
@@ -587,7 +587,7 @@ pub async fn buy_xmr(
     let BuyXmrArgs {
         seller,
         bitcoin_change_address,
-        monero_receive_address,
+        monero_receive_pool,
     } = buy_xmr;
 
     let bitcoin_wallet = Arc::clone(
@@ -650,7 +650,7 @@ pub async fn buy_xmr(
 
     context
         .db
-        .insert_monero_address(swap_id, monero_receive_address)
+        .insert_monero_address_pool(swap_id, monero_receive_pool.clone())
         .await?;
 
     tracing::debug!(peer_id = %swarm.local_peer_id(), "Network layer initialized");
@@ -766,7 +766,7 @@ pub async fn buy_xmr(
                     monero_wallet,
                     env_config,
                     event_loop_handle,
-                    monero_receive_address,
+                    monero_receive_pool.clone(),
                     bitcoin_change_address,
                     tx_lock_amount,
                     tx_lock_fee
@@ -844,7 +844,7 @@ pub async fn resume_swap(
     let (event_loop, event_loop_handle) =
         EventLoop::new(swap_id, swarm, seller_peer_id, context.db.clone())?;
 
-    let monero_receive_address = context.db.get_monero_address(swap_id).await?;
+    let monero_receive_pool = context.db.get_monero_address_pool(swap_id).await?;
 
     let swap = Swap::from_db(
         Arc::clone(&context.db),
@@ -862,7 +862,7 @@ pub async fn resume_swap(
             .clone(),
         context.config.env_config,
         event_loop_handle,
-        monero_receive_address,
+        monero_receive_pool,
     )
     .await?
     .with_event_emitter(context.tauri_handle.clone());

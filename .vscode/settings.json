@@ -68,7 +68,12 @@
         "unordered_map": "cpp",
         "unordered_set": "cpp",
         "variant": "cpp",
-        "algorithm": "cpp"
+        "algorithm": "cpp",
+        "shared_mutex": "cpp",
+        "source_location": "cpp",
+        "strstream": "cpp",
+        "typeindex": "cpp",
+        "*.rs": "rust"
     },
     "cmake.sourceDirectory": "/Users/me/code/xmr-btc-swap/monero-sys/monero/src/blockchain_db"
 }
