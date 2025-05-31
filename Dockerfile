@@ -32,6 +32,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 COPY . .
+COPY .git .git
 
 # Update submodules recursively
 RUN git submodule update --init --recursive
