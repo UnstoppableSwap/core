@@ -54,6 +54,10 @@ test_monero_sys:
 swap:
 	cd swap && cargo build --bin asb --bin=swap
 
+# Run the asb on testnet
+asb-testnet:
+	cd swap && cargo run --bin asb -- --trace --testnet start
+
 # Updates our submodules (currently only Monero C++ codebase)
 update_submodules:
 	cd monero-sys && git submodule update --init --recursive --force
