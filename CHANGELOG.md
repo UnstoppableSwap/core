@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - We now use Monero ffi bindings instead of spawning `monero-wallet-rpc`.
 - ASB: Since we don't communicate with `monero-wallet-rpc` anymore, the Monero wallet's will no longer be accessible by connecting to it.
 - ASB: Add a `export-monero-wallet` command which gives the Monero wallet's seed. Export this into a wallet software of your own choosing to manage your Monero funds.
+- ASB: You can use the `--trace` flag to log all messages to the terminal. This is useful for debugging but shouldn't be used in production because it will log a lot of data, especially related to p2p networking and tor bootstrapping. If you want to debug issues in production, read the tracing-logs inside the data directory instead.
 
 ## [1.1.2] - 2025-05-24
 
