@@ -34,13 +34,15 @@ pub fn init(
     trace_stdout: bool,
 ) -> Result<()> {
     let ALL_CRATES: Vec<&str> = vec![
+        "monero_sys",
+        "monero_cpp",
         "swap",
         "asb",
         "libp2p_community_tor",
         "unstoppableswap-gui-rs",
         "arti",
     ];
-    let OUR_CRATES: Vec<&str> = vec!["swap", "asb"];
+    let OUR_CRATES: Vec<&str> = vec!["swap", "asb", "monero_sys"];
 
     // General log file for non-verbose logs
     let file_appender: RollingFileAppender = tracing_appender::rolling::never(&dir, "swap-all.log");
@@ -81,10 +83,10 @@ pub fn init(
     // Level: Passed in
     let is_terminal = atty::is(atty::Stream::Stderr);
     let terminal_layer = fmt::layer()
-        .with_writer(std::io::stdout)
+        .with_writer(std::io::stderr)
         .with_ansi(is_terminal)
         .with_timer(UtcTime::rfc_3339())
-        .with_target(false);
+        .with_target(true);
 
     // Layer for writing to the Tauri guest. This will be displayed in the GUI.
     // Crates: swap, asb, libp2p_community_tor, unstoppableswap-gui-rs, arti
@@ -95,7 +97,7 @@ pub fn init(
         .with_timer(UtcTime::rfc_3339())
         .with_target(true)
         .json()
-        .with_filter(env_filter(level_filter, ALL_CRATES.clone())?);
+        .with_filter(env_filter(level_filter, OUR_CRATES.clone())?);
 
     // If trace_stdout is true, we log all messages to the terminal
     // Otherwise, we only log the bare minimum
@@ -103,6 +105,7 @@ pub fn init(
         true => env_filter(LevelFilter::TRACE, ALL_CRATES.clone())?,
         false => env_filter(level_filter, OUR_CRATES.clone())?,
     };
+
     let final_terminal_layer = match format {
         Format::Json => terminal_layer
             .json()
