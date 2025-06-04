@@ -19,24 +19,25 @@ pub async fn punish(
 ) -> Result<(Txid, AliceState)> {
     let state = db.get_state(swap_id).await?.try_into()?;
 
-    let state3 = match state {
+    let (state3, transfer_proof) = match state {
         // Punish potentially possible (no knowledge of cancel transaction)
-        AliceState::BtcLockTransactionSeen { state3 }
-        | AliceState::BtcLocked { state3, .. }
-        | AliceState::XmrLockTransactionSent {state3, ..}
-        | AliceState::XmrLocked {state3, ..}
-        | AliceState::XmrLockTransferProofSent {state3, ..}
-        | AliceState::EncSigLearned {state3, ..}
-        | AliceState::CancelTimelockExpired {state3, ..}
+        AliceState::XmrLockTransactionSent {state3, transfer_proof, ..}
+        | AliceState::XmrLocked {state3, transfer_proof, ..}
+        | AliceState::XmrLockTransferProofSent {state3, transfer_proof, ..}
+        | AliceState::EncSigLearned {state3, transfer_proof, ..}
+        | AliceState::CancelTimelockExpired {state3, transfer_proof, ..}
         // Punish possible due to cancel transaction already being published
-        | AliceState::BtcCancelled {state3, ..}
-        | AliceState::BtcPunishable {state3, ..} => { state3 }
+        | AliceState::BtcCancelled {state3, transfer_proof, ..}
+        | AliceState::BtcPunishable {state3, transfer_proof, ..}
         // The state machine is in a state where punish is theoretically impossible but we try and punish anyway as this is what the user wants
-        AliceState::BtcRedeemTransactionPublished { state3 }
-        | AliceState::BtcRefunded { state3,.. }
-        | AliceState::Started { state3 }  => { state3 }
-        // Alice already in final state
-        | AliceState::BtcRedeemed
+        | AliceState::BtcRedeemTransactionPublished { state3, transfer_proof, .. }
+        | AliceState::BtcRefunded { state3, transfer_proof,.. } => { (state3, transfer_proof) }
+
+        // Alice already in final state or at the start of the swap so we can't punish
+        | AliceState::Started { .. }
+        | AliceState::BtcLockTransactionSeen { .. }
+        | AliceState::BtcLocked { .. }
+        | AliceState::BtcRedeemed { .. }
         | AliceState::XmrRefunded
         | AliceState::BtcPunished { .. }
         | AliceState::SafelyAborted => bail!(Error::SwapNotPunishable(state)),
@@ -46,8 +47,16 @@ pub async fn punish(
 
     let txid = state3.punish_btc(&bitcoin_wallet).await?;
 
+    // Problem: we need the lock transfer proof in BtcPunished.
+    // For that, we need to pass it to the state.
+    // We want to be able to punish from any state.
+    // But: not every state has the transfer proof saved.
+
+    // So we kinda have to get the transfer proof from the database.
+
     let state = AliceState::BtcPunished {
         state3: state3.clone(),
+        transfer_proof,
     };
     db.insert_latest_state(swap_id, state.clone().into())
         .await?;

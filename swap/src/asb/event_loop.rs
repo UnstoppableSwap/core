@@ -1,5 +1,4 @@
 use crate::asb::{Behaviour, OutEvent, Rate};
-use crate::monero::Amount;
 use crate::network::cooperative_xmr_redeem_after_punish::CooperativeXmrRedeemRejectReason;
 use crate::network::cooperative_xmr_redeem_after_punish::Response::{Fullfilled, Rejected};
 use crate::network::quote::BidQuote;
@@ -23,7 +22,7 @@ use std::convert::{Infallible, TryInto};
 use std::fmt::Debug;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::sync::{mpsc, oneshot};
 use tokio::time::timeout;
 use uuid::Uuid;
 
@@ -45,7 +44,7 @@ where
     swarm: libp2p::Swarm<Behaviour<LR>>,
     env_config: env::Config,
     bitcoin_wallet: Arc<bitcoin::Wallet>,
-    monero_wallet: Arc<Mutex<monero::Wallet>>,
+    monero_wallet: Arc<monero::Wallets>,
     db: Arc<dyn Database + Send + Sync>,
     latest_rate: LR,
     min_buy: bitcoin::Amount,
@@ -132,7 +131,7 @@ where
         swarm: Swarm<Behaviour<LR>>,
         env_config: env::Config,
         bitcoin_wallet: Arc<bitcoin::Wallet>,
-        monero_wallet: Arc<Mutex<monero::Wallet>>,
+        monero_wallet: Arc<monero::Wallets>,
         db: Arc<dyn Database + Send + Sync>,
         latest_rate: LR,
         min_buy: bitcoin::Amount,
@@ -232,7 +231,7 @@ where
                                 }
                             };
 
-                            let wallet_snapshot = match WalletSnapshot::capture(&self.bitcoin_wallet, &*self.monero_wallet.lock().await, &self.external_redeem_address, btc).await {
+                            let wallet_snapshot = match WalletSnapshot::capture(&self.bitcoin_wallet, &self.monero_wallet, &self.external_redeem_address, btc).await {
                                 Ok(wallet_snapshot) => wallet_snapshot,
                                 Err(error) => {
                                     tracing::error!("Swap request will be ignored because we were unable to create wallet snapshot for swap: {:#}", error);
@@ -380,19 +379,19 @@ where
                             // If we are in either of these states, the punish timelock has expired
                             // Bob cannot refund the Bitcoin anymore. We can publish tx_punish to redeem the Bitcoin.
                             // Therefore it is safe to reveal s_a to let him redeem the Monero
-                            let State::Alice (AliceState::BtcPunished { state3 } | AliceState::BtcPunishable { state3, .. }) = swap_state else {
+                            let State::Alice (AliceState::BtcPunished { state3, transfer_proof, .. } | AliceState::BtcPunishable { state3, transfer_proof, .. }) = swap_state else {
                                 tracing::warn!(
                                     swap_id = %swap_id,
                                     reason = "swap is in invalid state",
-                                    "Rejecting cooperative XMR redeem request"
+                                    "Rejecting cooperative Monero redeem request"
                                 );
                                 if self.swarm.behaviour_mut().cooperative_xmr_redeem.send_response(channel, Rejected { swap_id, reason: CooperativeXmrRedeemRejectReason::SwapInvalidState }).is_err() {
-                                    tracing::error!(swap_id = %swap_id, "Failed to reject cooperative XMR redeem request");
+                                    tracing::error!(swap_id = %swap_id, "Failed to send rejection for cooperative Monero redeem request");
                                 }
                                 continue;
                             };
 
-                            if self.swarm.behaviour_mut().cooperative_xmr_redeem.send_response(channel, Fullfilled { swap_id, s_a: state3.s_a }).is_err() {
+                            if self.swarm.behaviour_mut().cooperative_xmr_redeem.send_response(channel, Fullfilled { swap_id, s_a: state3.s_a, lock_transfer_proof: transfer_proof }).is_err() {
                                 tracing::error!(peer = %peer, "Failed to respond to cooperative XMR redeem request");
                                 continue;
                             }
@@ -456,7 +455,8 @@ where
                             tracing::trace!(%peer, address = %endpoint.get_remote_address(), %connection_id,  "Successfully closed connection");
                         }
                         SwarmEvent::NewListenAddr{address, ..} => {
-                            tracing::info!(%address, "New listen address reported");
+                            let multiaddr = format!("{address}/p2p/{}", self.swarm.local_peer_id());
+                            tracing::info!(%address, %multiaddr, "New listen address reported");
                         }
                         _ => {}
                     }
@@ -529,24 +529,22 @@ where
             .ask()
             .map_err(|e| Arc::new(e.context("Failed to compute asking price")))?;
 
-        let balance = timeout(MAX_WAIT_DURATION, self.monero_wallet.lock())
-            .await
-            .context("Timeout while waiting for lock on monero wallet while making quote")?
-            .get_balance()
-            .await
-            .map_err(|e| Arc::new(e.context("Failed to get Monero balance")))?;
-        let xmr_balance = Amount::from_piconero(balance.unlocked_balance);
+        let xmr_balance = timeout(
+            MAX_WAIT_DURATION,
+            self.monero_wallet.main_wallet().await.unlocked_balance(),
+        )
+        .await
+        .context("Timeout while waiting for lock on monero wallet while making quote")?;
 
-        let max_bitcoin_for_monero =
-            xmr_balance
-                .max_bitcoin_for_price(ask_price)
-                .ok_or_else(|| {
-                    Arc::new(anyhow!(
-                        "Bitcoin price ({}) x Monero ({}) overflow",
-                        ask_price,
-                        xmr_balance
-                    ))
-                })?;
+        let max_bitcoin_for_monero = monero::Amount::from(xmr_balance)
+            .max_bitcoin_for_price(ask_price)
+            .ok_or_else(|| {
+                Arc::new(anyhow!(
+                    "Bitcoin price ({}) x Monero ({}) overflow",
+                    ask_price,
+                    xmr_balance
+                ))
+            })?;
 
         tracing::trace!(%ask_price, %xmr_balance, %max_bitcoin_for_monero, "Computed quote");
 

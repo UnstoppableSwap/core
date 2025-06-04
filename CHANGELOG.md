@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- We now call Monero function directly (via ffi bidnings) instead of using `monero-wallet-rpc`.
+- ASB: Since we don't communicate with `monero-wallet-rpc` anymore, the Monero wallet's will no longer be accessible by connecting to it.
+- ASB: Add a `export-monero-wallet` command which gives the Monero wallet's seed and restore height. Export this seed into a wallet software of your own choosing to manage your Monero funds.
+  The seed is a 25 word mnemonic. Example:
+  ```bash
+  $ asb export-monero-wallet > wallet.txt
+  $ cat wallet.txt
+  Seed          : novelty deodorant aloof serving fuel vipers awful segments siblings bite exquisite quick snout rising hobby trash amply recipe cinema ritual problems pram getting playful novelty
+  Restore height: 3403755
+  $
+  ```
+
+- Logs are now written to `stderr` (instead of `stdout`). Makers relying on piping the logs need to make sure to include the `stderr` output:
+
+  | Before                     | After                            |
+  | -------------------------- | -------------------------------- |
+  | `asb logs \| my-script.sh` | `asb logs  2>&1 \| my-script.sh` |
+  | `asb logs > output.txt`    | `asb logs > output.txt 2>&1`     |
+
 ## [1.1.3] - 2025-05-31
 
 - The Bitcoin fee estimation is now more accurate. It uses a combination of `estimatesmartfee` from Bitcoin Core and `mempool.get_fee_histogram` from Electrum to ensure our distance from the mempool tip is appropriate. If our Electrum server doesn't support fee estimation, we use the mempool.space API. The mempool space API can be disabled using the `bitcoin.use_mempool_space_fee_estimation` option in the config file. It defaults to `true`.

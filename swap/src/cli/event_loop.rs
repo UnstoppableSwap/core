@@ -225,9 +225,9 @@ impl EventLoop {
                                 let _ = responder.respond(Ok(()));
                             }
                         }
-                        SwarmEvent::Behaviour(OutEvent::CooperativeXmrRedeemFulfilled { id, swap_id, s_a }) => {
+                        SwarmEvent::Behaviour(OutEvent::CooperativeXmrRedeemFulfilled { id, swap_id, s_a, lock_transfer_proof }) => {
                             if let Some(responder) = self.inflight_cooperative_xmr_redeem_requests.remove(&id) {
-                                let _ = responder.respond(Ok(Response::Fullfilled { s_a, swap_id }));
+                                let _ = responder.respond(Ok(Response::Fullfilled { s_a, swap_id, lock_transfer_proof }));
                             }
                         }
                         SwarmEvent::Behaviour(OutEvent::CooperativeXmrRedeemRejected { id, swap_id, reason }) => {

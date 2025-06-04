@@ -21,13 +21,22 @@ monero_sys:
 tauri:
 	cd src-tauri && cargo tauri dev --no-watch -- -- --testnet
 
+tauri-mainnet:
+	cd src-tauri && cargo tauri dev --no-watch
+
 # Install the GUI dependencies
 gui_install:
 	cd src-gui && yarn install
 
 # Start the GUI Dev Server
-gui:
+web:
 	cd src-gui && yarn dev
+
+gui:
+	just web & just tauri
+
+gui-mainnet:
+	just web & just tauri-mainnet
 
 # Build the GUI
 gui_build:
@@ -45,6 +54,10 @@ test_monero_sys:
 swap:
 	cd swap && cargo build --bin asb --bin=swap
 
+# Run the asb on testnet
+asb-testnet:
+	cd swap && cargo run --bin asb -- --trace --testnet start
+
 # Updates our submodules (currently only Monero C++ codebase)
 update_submodules:
 	cd monero-sys && git submodule update --init --recursive --force
@@ -53,17 +66,9 @@ update_submodules:
 clippy:
 	cargo clippy --workspace --all-targets --all-features -- -D warnings
 
-# Check the bindings for the Tauri API
-check_bindings:
-	cd src-gui && yarn run check-bindings
-
 # Generate the bindings for the Tauri API
 bindings:
 	cd src-gui && yarn run gen-bindings
-
-# Kill all instances of monero-wallet-rpc running in the background
-kill_monero_wallet_rpc:
-	killall monero-wallet-rpc && pkill -f monero-wallet-rpc
 
 # Format the code
 fmt:
