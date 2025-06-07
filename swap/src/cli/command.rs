@@ -463,8 +463,8 @@ pub struct Monero {
 
 #[derive(structopt::StructOpt, Debug)]
 pub struct Bitcoin {
-    #[structopt(long = "electrum-rpc", help = "Provide the Bitcoin Electrum RPC URL")]
-    pub bitcoin_electrum_rpc_url: Option<Url>,
+    #[structopt(long = "electrum-rpc", help = "Provide the Bitcoin Electrum RPC URLs")]
+    pub bitcoin_electrum_rpc_urls: Vec<String>,
 
     #[structopt(
         long = "bitcoin-target-block",
@@ -474,13 +474,13 @@ pub struct Bitcoin {
 }
 
 impl Bitcoin {
-    pub fn apply_defaults(self, testnet: bool) -> Result<(Url, u16)> {
-        let bitcoin_electrum_rpc_url = if let Some(url) = self.bitcoin_electrum_rpc_url {
-            url
+    pub fn apply_defaults(self, testnet: bool) -> Result<(Vec<String>, u16)> {
+        let bitcoin_electrum_rpc_urls = if !self.bitcoin_electrum_rpc_urls.is_empty() {
+            self.bitcoin_electrum_rpc_urls
         } else if testnet {
-            Url::from_str(DEFAULT_ELECTRUM_RPC_URL_TESTNET)?
+            vec![DEFAULT_ELECTRUM_RPC_URL_TESTNET.to_string()]
         } else {
-            Url::from_str(DEFAULT_ELECTRUM_RPC_URL)?
+            vec![DEFAULT_ELECTRUM_RPC_URL.to_string()]
         };
 
         let bitcoin_target_block = if let Some(target_block) = self.bitcoin_target_block {
@@ -491,7 +491,7 @@ impl Bitcoin {
             DEFAULT_BITCOIN_CONFIRMATION_TARGET
         };
 
-        Ok((bitcoin_electrum_rpc_url, bitcoin_target_block))
+        Ok((bitcoin_electrum_rpc_urls, bitcoin_target_block))
     }
 }
 

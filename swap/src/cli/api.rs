@@ -336,7 +336,7 @@ impl ContextBuilder {
         let initialize_bitcoin_wallet = async {
             match self.bitcoin {
                 Some(bitcoin) => {
-                    let (url, target_block) = bitcoin.apply_defaults(self.is_testnet)?;
+                    let (urls, target_block) = bitcoin.apply_defaults(self.is_testnet)?;
 
                     let bitcoin_progress_handle = tauri_handle
                         .new_background_process_with_initial_progress(
@@ -345,7 +345,7 @@ impl ContextBuilder {
                         );
 
                     let wallet = init_bitcoin_wallet(
-                        url,
+                        urls,
                         seed,
                         data_dir,
                         env_config,
@@ -514,7 +514,7 @@ impl fmt::Debug for Context {
 }
 
 async fn init_bitcoin_wallet(
-    electrum_rpc_url: Url,
+    electrum_rpc_urls: Vec<String>,
     seed: &Seed,
     data_dir: &Path,
     env_config: EnvConfig,
@@ -524,7 +524,7 @@ async fn init_bitcoin_wallet(
     let mut builder = bitcoin::wallet::WalletBuilder::default()
         .seed(seed.clone())
         .network(env_config.bitcoin_network)
-        .electrum_rpc_url(electrum_rpc_url.as_str().to_string())
+        .electrum_rpc_urls(electrum_rpc_urls)
         .persister(bitcoin::wallet::PersisterConfig::SqliteFile {
             data_dir: data_dir.to_path_buf(),
         })

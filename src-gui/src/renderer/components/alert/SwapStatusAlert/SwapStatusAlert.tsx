@@ -187,6 +187,8 @@ export function StateAlert({
     case BobStateName.EncSigSent:
     case BobStateName.CancelTimelockExpired:
     case BobStateName.BtcCancelled:
+    case BobStateName.BtcRefundPublished: // Even if the transactions have been published, it cannot be
+    case BobStateName.BtcEarlyRefundPublished: // guaranteed that they will be confirmed in time
       if (swap.timelock != null) {
         switch (swap.timelock.type) {
           case "None":

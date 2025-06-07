@@ -442,6 +442,7 @@ pub struct TauriBackgroundProgressHandle<T: Clone> {
 impl<T: Clone> TauriBackgroundProgressHandle<T> {
     /// Update the progress of this background process
     /// Updates after finish() has been called will be ignored
+    #[cfg(feature = "tauri")]
     pub fn update(&self, progress: T) {
         if self.is_finished.load(std::sync::atomic::Ordering::Relaxed) {
             tracing::trace!(%self.id, "Ignoring update to background progress because it has already been finished");
@@ -454,6 +455,11 @@ impl<T: Clone> TauriBackgroundProgressHandle<T> {
                 (self.component)(PendingCompleted::Pending(progress)),
             );
         }
+    }
+
+    #[cfg(not(feature = "tauri"))]
+    pub fn update(&self, _progress: T) {
+        // Do nothing when tauri is not enabled
     }
 
     /// Mark this background process as completed
@@ -626,6 +632,24 @@ pub enum TauriSwapProgressEvent {
         #[typeshare(serialized_as = "string")]
         btc_cancel_txid: Txid,
     },
+    // tx_early_refund has been published but has not been confirmed yet
+    // we can still transition into BtcRefunded from here
+    BtcEarlyRefundPublished {
+        #[typeshare(serialized_as = "string")]
+        btc_early_refund_txid: Txid,
+    },
+    // tx_refund has been published but has not been confirmed yet
+    // we can still transition into BtcEarlyRefunded from here
+    BtcRefundPublished {
+        #[typeshare(serialized_as = "string")]
+        btc_refund_txid: Txid,
+    },
+    // tx_early_refund has been confirmed
+    BtcEarlyRefunded {
+        #[typeshare(serialized_as = "string")]
+        btc_early_refund_txid: Txid,
+    },
+    // tx_refund has been confirmed
     BtcRefunded {
         #[typeshare(serialized_as = "string")]
         btc_refund_txid: Txid,
@@ -679,9 +703,8 @@ pub enum BackgroundRefundState {
 pub struct TauriSettings {
     /// The URL of the Monero node e.g `http://xmr.node:18081`
     pub monero_node_url: Option<String>,
-    /// The URL of the Electrum RPC server e.g `ssl://bitcoin.com:50001`
-    #[typeshare(serialized_as = "string")]
-    pub electrum_rpc_url: Option<Url>,
+    /// The URLs of the Electrum RPC servers e.g `["ssl://bitcoin.com:50001", "ssl://backup.com:50001"]`
+    pub electrum_rpc_urls: Vec<String>,
     /// Whether to initialize and use a tor client.
     pub use_tor: bool,
 }
