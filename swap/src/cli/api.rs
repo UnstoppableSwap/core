@@ -2,7 +2,7 @@ pub mod request;
 pub mod tauri_bindings;
 
 use crate::cli::command::{Bitcoin, Monero};
-use crate::common::tor::init_tor_client;
+use crate::common::tor::{init_tor_client, may_init_tor};
 use crate::common::tracing_util::Format;
 use crate::database::{open_db, AccessMode};
 use crate::env::{Config as EnvConfig, GetConfig, Mainnet, Testnet};
@@ -438,6 +438,9 @@ impl ContextBuilder {
 
         let initialize_tor_client = async {
             // Don't init a tor client unless we should use it.
+            if !may_init_tor() {
+                return Ok(None);
+            }
             if !self.tor {
                 tracing::warn!("Internal Tor client not enabled, skipping initialization");
                 return Ok(None);
