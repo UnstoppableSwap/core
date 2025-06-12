@@ -42,6 +42,7 @@ futures = { version = "0.3", default-features = false, features = ["std"] }
 hex = "0.4"
 libp2p = { version = "0.53.2", features = ["tcp", "yamux", "dns", "noise", "request-response", "ping", "rendezvous", "identify", "macros", "cbor", "json", "tokio", "serde", "rsa"] }
 libp2p-community-tor = { git = "https://github.com/umgefahren/libp2p-tor", rev = "e6b913e0f1ac1fc90b3ee4dd31b5511140c4a9af", features = ["listen-onion-service"] }
+libp2p-community-tor-interface = { git = "https://github.com/nabijaczleweli/libp2p-tor-interface", features = ["legacy-tor-provider"] }
 moka = { version = "0.12", features = ["sync", "future"] }
 monero = { version = "0.12", features = ["serde_support"] }
 monero-rpc = { path = "../monero-rpc" }
