@@ -1,5 +1,6 @@
 use crate::env::{Mainnet, Testnet};
 use crate::fs::{ensure_directory_exists, system_config_dir, system_data_dir};
+use crate::common::tor::may_init_tor;
 use anyhow::{bail, Context, Result};
 use config::ConfigError;
 use dialoguer::theme::ColorfulTheme;
@@ -300,14 +301,18 @@ pub fn query_user_for_initial_config(testnet: bool) -> Result<Config> {
         .default(defaults.bitcoin_confirmation_target)
         .interact_text()?;
 
-    let listen_addresses = Input::with_theme(&ColorfulTheme::default())
-        .with_prompt("Enter multiaddresses (comma separated) on which asb should list for peer-to-peer communications or hit return to use default")
-        .default( format!("{}", defaults.listen_address_tcp))
-        .interact_text()?;
-    let listen_addresses = listen_addresses
-        .split(',')
-        .map(|str| str.parse())
-        .collect::<Result<Vec<Multiaddr>, _>>()?;
+    let listen_addresses = if may_init_tor() {
+        let listen_addresses = Input::with_theme(&ColorfulTheme::default())
+            .with_prompt("Enter multiaddresses (comma separated) on which asb should list for peer-to-peer communications or hit return to use default")
+            .default(defaults.listen_address_tcp.to_string())
+            .interact_text()?;
+        listen_addresses
+            .split(',')
+            .map(|str| str.parse())
+            .collect::<Result<Vec<Multiaddr>, _>>()?
+    } else {
+        vec![]
+    };
 
     let electrum_rpc_url = Input::with_theme(&ColorfulTheme::default())
         .with_prompt("Enter Electrum RPC URL or hit return to use default")
@@ -319,12 +324,16 @@ pub fn query_user_for_initial_config(testnet: bool) -> Result<Config> {
         .default(defaults.monero_wallet_rpc_url)
         .interact_text()?;
 
-    let register_hidden_service = Select::with_theme(&ColorfulTheme::default())
-        .with_prompt("Do you want a Tor hidden service to be created? This will allow you to run from behind a firewall without opening ports, and hide your IP address. You do not have to run a Tor daemon yourself. We recommend this for most users. (y/n)")
-        .items(&["yes", "no"])
-        .default(0)
-        .interact()?
-        == 0;
+    let register_hidden_service = if may_init_tor() {
+        Select::with_theme(&ColorfulTheme::default())
+            .with_prompt("Do you want a Tor hidden service to be created? This will allow you to run from behind a firewall without opening ports, and hide your IP address. You do not have to run a Tor daemon yourself. We recommend this for most users. (y/n)")
+            .items(&["yes", "no"])
+            .default(0)
+            .interact()?
+            == 0
+    } else {
+        true
+    };
 
     let min_buy = Input::with_theme(&ColorfulTheme::default())
         .with_prompt("Enter minimum Bitcoin amount you are willing to accept per swap or hit enter to use default.")
