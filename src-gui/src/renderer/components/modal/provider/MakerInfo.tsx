@@ -105,6 +105,11 @@ export default function MakerInfo({ maker }: { maker: ExtendedMakerStatus }) {
             <Chip label="Outdated" icon={<WarningIcon />} color="primary" />
           </Tooltip>
         )}
+        {maker.version && (
+          <Tooltip title="The version of the maker's software">
+            <Chip label={`v${maker.version}`} />
+          </Tooltip>
+        )}
         <MakerMarkupChip maker={maker} />
       </Box>
     </Box>

@@ -181,11 +181,7 @@ export default function DaemonStatusAlert() {
 
   switch (contextStatus) {
     case TauriContextStatusEvent.Initializing:
-      return (
-        <LoadingSpinnerAlert severity="warning">
-          Core components are loading
-        </LoadingSpinnerAlert>
-      );
+      return null;
     case TauriContextStatusEvent.Available:
       return <Alert severity="success">The daemon is running</Alert>;
     case TauriContextStatusEvent.Failed:
