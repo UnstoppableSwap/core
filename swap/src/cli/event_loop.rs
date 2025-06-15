@@ -5,6 +5,7 @@ use crate::network::cooperative_xmr_redeem_after_punish::{self, Request, Respons
 use crate::network::encrypted_signature;
 use crate::network::quote::BidQuote;
 use crate::network::swap_setup::bob::NewSwap;
+use crate::network::transfer_proof;
 use crate::protocol::bob::swap::has_already_processed_transfer_proof;
 use crate::protocol::bob::{BobState, State2};
 use crate::protocol::Database;
@@ -119,7 +120,7 @@ impl EventLoop {
         match self.swarm.dial(DialOpts::from(self.alice_peer_id)) {
             Ok(()) => {}
             Err(e) => {
-                tracing::error!("Failed to initiate dial to Alice: {}", e);
+                tracing::error!("Failed to initiate dial to Alice: {:?}", e);
                 return;
             }
         }
@@ -225,9 +226,9 @@ impl EventLoop {
                                 let _ = responder.respond(Ok(()));
                             }
                         }
-                        SwarmEvent::Behaviour(OutEvent::CooperativeXmrRedeemFulfilled { id, swap_id, s_a }) => {
+                        SwarmEvent::Behaviour(OutEvent::CooperativeXmrRedeemFulfilled { id, swap_id, s_a, lock_transfer_proof }) => {
                             if let Some(responder) = self.inflight_cooperative_xmr_redeem_requests.remove(&id) {
-                                let _ = responder.respond(Ok(Response::Fullfilled { s_a, swap_id }));
+                                let _ = responder.respond(Ok(Response::Fullfilled { s_a, swap_id, lock_transfer_proof }));
                             }
                         }
                         SwarmEvent::Behaviour(OutEvent::CooperativeXmrRedeemRejected { id, swap_id, reason }) => {
@@ -236,7 +237,7 @@ impl EventLoop {
                             }
                         }
                         SwarmEvent::Behaviour(OutEvent::Failure { peer, error }) => {
-                            tracing::warn!(%peer, err = %error, "Communication error");
+                            tracing::warn!(%peer, err = ?error, "Communication error");
                             return;
                         }
                         SwarmEvent::ConnectionEstablished { peer_id, endpoint, .. } if peer_id == self.alice_peer_id => {
@@ -246,7 +247,7 @@ impl EventLoop {
                             tracing::debug!(%alice_peer_id, %connection_id, "Dialing Alice");
                         }
                         SwarmEvent::ConnectionClosed { peer_id, endpoint, num_established, cause: Some(error), connection_id } if peer_id == self.alice_peer_id && num_established == 0 => {
-                            tracing::warn!(peer_id = %endpoint.get_remote_address(), cause = %error, %connection_id, "Lost connection to Alice");
+                            tracing::warn!(peer_id = %endpoint.get_remote_address(), cause = ?error, %connection_id, "Lost connection to Alice");
 
                             if let Some(duration) = self.swarm.behaviour_mut().redial.until_next_redial() {
                                 tracing::info!(seconds_until_next_redial = %duration.as_secs(), "Waiting for next redial attempt");
@@ -258,7 +259,7 @@ impl EventLoop {
                             return;
                         }
                         SwarmEvent::OutgoingConnectionError { peer_id: Some(alice_peer_id),  error, connection_id } if alice_peer_id == self.alice_peer_id => {
-                            tracing::warn!(%alice_peer_id, %connection_id, %error, "Failed to connect to Alice");
+                            tracing::warn!(%alice_peer_id, %connection_id, ?error, "Failed to connect to Alice");
 
                             if let Some(duration) = self.swarm.behaviour_mut().redial.until_next_redial() {
                                 tracing::info!(seconds_until_next_redial = %duration.as_secs(), "Waiting for next redial attempt");
@@ -268,7 +269,7 @@ impl EventLoop {
                             tracing::error!(
                                 %peer,
                                 %request_id,
-                                %error,
+                                ?error,
                                 %protocol,
                                 "Failed to send request-response request to peer");
 
@@ -297,7 +298,7 @@ impl EventLoop {
                             tracing::error!(
                                 %peer,
                                 %request_id,
-                                %error,
+                                ?error,
                                 %protocol,
                                 "Failed to receive request-response request from peer");
                         }

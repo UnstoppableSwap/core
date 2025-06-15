@@ -93,6 +93,14 @@ where
             env_config: env_config(testnet),
             cmd: Command::ExportBitcoinWallet,
         },
+        RawCommand::ExportMoneroWallet => Arguments {
+            testnet,
+            json,
+            trace,
+            config_path: config_path(config, testnet)?,
+            env_config: env_config(testnet),
+            cmd: Command::ExportMoneroWallet,
+        },
         RawCommand::ManualRecovery(ManualRecovery::Redeem {
             redeem_params: RecoverCommandParams { swap_id },
             do_not_await_finality,
@@ -226,6 +234,7 @@ pub enum Command {
         swap_id: Uuid,
     },
     ExportBitcoinWallet,
+    ExportMoneroWallet,
 }
 
 #[derive(structopt::StructOpt, Debug)]
@@ -320,6 +329,8 @@ pub enum RawCommand {
     Balance,
     #[structopt(about = "Print the internal bitcoin wallet descriptor.")]
     ExportBitcoinWallet,
+    #[structopt(about = "Print the Monero wallet seed and creation height.")]
+    ExportMoneroWallet,
     #[structopt(about = "Contains sub-commands for recovering a swap manually.")]
     ManualRecovery(ManualRecovery),
 }

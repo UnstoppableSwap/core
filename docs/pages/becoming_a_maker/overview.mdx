@@ -166,7 +166,7 @@ We do not recommend changing these settings, however we document them for comple
 # ...
 
 [monero]
-wallet_rpc_url = "http://mainnet_monero-wallet-rpc:18083/json_rpc"
+daemon_url = "http://your.monero-daemon.org:18081"
 network = "Mainnet"
 
 # ...
@@ -174,8 +174,8 @@ network = "Mainnet"
 
 | Option | Description |
 | --- | --- |
-| `wallet_rpc_url` | The URL of the _monero-wallet-rpc_ server the asb will connect to. The _monero-wallet-rpc_ server is is used to interact with the Monero blockchain. The default URL points to the docker-hosted _monero-wallet-rpc_ server. |
-| `network` | The Monero network the asb will connect to. |
+| `daemon_url` | The URL of the Monero node the asb will connect to. Optional: if not specified, the asb will connect to a known public Monero node at random. |
+| `network` | The Monero network the asb will connect to. Either "Mainnet" or "Stagenet". |
 
 ### Tor Section
 
