@@ -14,11 +14,11 @@ fn is_whonix() -> bool {
 }
 
 pub fn existing_tor_config() -> Option<(
-    libp2p_community_tor_interface::tor_interface::legacy_tor_client::LegacyTorClientConfig,
+    libp2p_community_tor::tor_interface::legacy_tor_client::LegacyTorClientConfig,
     std::net::SocketAddr,
 )> {
     if is_whonix() {
-        Some((libp2p_community_tor_interface::tor_interface::legacy_tor_client::LegacyTorClientConfig::system_from_environment().expect("whonix always $TOR_... set"),
+        Some((libp2p_community_tor::tor_interface::legacy_tor_client::LegacyTorClientConfig::system_from_environment().expect("whonix always $TOR_... set"),
             ([0, 0, 0, 0], 9939).into()))
     } else {
         None

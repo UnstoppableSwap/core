@@ -5170,7 +5170,7 @@ dependencies = [
 [[package]]
 name = "libp2p-community-tor"
 version = "0.5.0"
-source = "git+https://github.com/umgefahren/libp2p-tor?rev=e6b913e0f1ac1fc90b3ee4dd31b5511140c4a9af#e6b913e0f1ac1fc90b3ee4dd31b5511140c4a9af"
+source = "git+https://github.com/nabijaczleweli/libp2p-tor?branch=US4#7dbf61e11bc031ae6edb7ccd0619ac5c71a52623"
 dependencies = [
  "anyhow",
  "arti-client",
@@ -5181,22 +5181,9 @@ dependencies = [
  "tokio",
  "tor-cell",
  "tor-hsservice",
+ "tor-interface",
  "tor-proto",
  "tor-rtcompat",
- "tracing",
-]
-
-[[package]]
-name = "libp2p-community-tor-interface"
-version = "0.1.0"
-source = "git+https://github.com/nabijaczleweli/libp2p-tor-interface#e7a37fc32a054de2d19fa334d5c02a10972876de"
-dependencies = [
- "anyhow",
- "futures",
- "libp2p",
- "thiserror 1.0.69",
- "tokio",
- "tor-interface",
  "tracing",
 ]
 
@@ -9843,7 +9830,6 @@ dependencies = [
  "hex",
  "libp2p",
  "libp2p-community-tor",
- "libp2p-community-tor-interface",
  "mockito",
  "moka",
  "monero",
@@ -11438,7 +11424,7 @@ dependencies = [
 [[package]]
 name = "tor-interface"
 version = "0.5.0"
-source = "git+https://github.com/nabijaczleweli/gosling?rev=65da8990e33c674ed8abeb10b454b4a39463d81d#65da8990e33c674ed8abeb10b454b4a39463d81d"
+source = "git+https://github.com/nabijaczleweli/gosling?rev=b83d0dc0b2c634fa2f7036d3aa2ead14740ddbd4#b83d0dc0b2c634fa2f7036d3aa2ead14740ddbd4"
 dependencies = [
  "curve25519-dalek 4.1.3",
  "data-encoding",
@@ -11457,6 +11443,7 @@ dependencies = [
  "static_assertions",
  "thiserror 1.0.69",
  "tor-llcrypto 0.31.0",
+ "zeroize",
 ]
 
 [[package]]
