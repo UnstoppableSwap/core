@@ -4914,7 +4914,7 @@ dependencies = [
 [[package]]
 name = "libp2p-community-tor"
 version = "0.5.0"
-source = "git+https://github.com/umgefahren/libp2p-tor?branch=main#8215104570a550cb3909a15c33af203387e88274"
+source = "git+https://github.com/nabijaczleweli/libp2p-tor?branch=US4#d852868a80528e999ccaf806ac94a5ae535a2b6f"
 dependencies = [
  "anyhow",
  "arti-client",
@@ -4925,22 +4925,9 @@ dependencies = [
  "tokio",
  "tor-cell",
  "tor-hsservice",
+ "tor-interface",
  "tor-proto",
  "tor-rtcompat",
- "tracing",
-]
-
-[[package]]
-name = "libp2p-community-tor-interface"
-version = "0.1.0"
-source = "git+https://github.com/nabijaczleweli/libp2p-tor-interface?rev=e7a37fc32a054de2d19fa334d5c02a10972876de#e7a37fc32a054de2d19fa334d5c02a10972876de"
-dependencies = [
- "anyhow",
- "futures",
- "libp2p",
- "thiserror 1.0.69",
- "tokio",
- "tor-interface",
  "tracing",
 ]
 
@@ -9387,7 +9374,6 @@ dependencies = [
  "hex",
  "libp2p",
  "libp2p-community-tor",
- "libp2p-community-tor-interface",
  "mockito",
  "moka",
  "monero",
