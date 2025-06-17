@@ -220,6 +220,134 @@ impl Amount {
     }
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[typeshare]
+pub struct LabeledMoneroAddress {
+    #[typeshare(serialized_as = "string")]
+    address: monero::Address,
+    #[typeshare(serialized_as = "number")]
+    percentage: Decimal,
+    label: String,
+}
+
+impl LabeledMoneroAddress {
+    pub fn new(address: monero::Address, percentage: Decimal, label: String) -> Self {
+        Self {
+            address,
+            percentage,
+            label,
+        }
+    }
+
+    pub fn address(&self) -> monero::Address {
+        self.address
+    }
+
+    pub fn percentage(&self) -> Decimal {
+        self.percentage
+    }
+
+    pub fn label(&self) -> &str {
+        &self.label
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[typeshare]
+pub struct MoneroAddressPool(Vec<LabeledMoneroAddress>);
+
+use rust_decimal::prelude::ToPrimitive;
+
+impl MoneroAddressPool {
+    pub fn new(addresses: Vec<LabeledMoneroAddress>) -> Self {
+        Self(addresses)
+    }
+
+    /// Sanity check that the sum of the percentages is 1
+    fn check_sum_is_one(&self) -> bool {
+        self.0
+            .iter()
+            .map(|address| address.percentage)
+            .sum::<Decimal>()
+            == Decimal::from(1)
+    }
+
+    pub fn addresses(&self) -> Vec<monero::Address> {
+        self.0.iter().map(|address| address.address()).collect()
+    }
+
+    pub fn ratios(&self) -> Vec<f64> {
+        self.0
+            .iter()
+            .map(|address| {
+                address
+                    .percentage()
+                    .to_f64()
+                    .expect("Decimal should convert to f64")
+            })
+            .collect()
+    }
+
+    pub fn split_amount_over_addresses(
+        &self,
+        amount: monero::Amount,
+    ) -> Result<Vec<(monero::Address, monero::Amount)>> {
+        // Sanity check that the pool is not empty
+        if self.0.is_empty() {
+            return Err(anyhow::anyhow!("No addresses in pool"));
+        }
+
+        // Sanity check that the sum of the percentages is 1
+        if !self.check_sum_is_one() {
+            return Err(anyhow::anyhow!("Sum of percentages is not 1"));
+        }
+
+        let amount_decimal = Decimal::from(amount.as_pico());
+        let mut result = Vec::new();
+
+        let (last_address, first_addresses) =
+            self.0.split_last().expect("At least one address in pool");
+
+        // Iterate over all but the last address
+        for address in first_addresses.iter() {
+            // Calculate the amount for this address
+            let split_amount = address.percentage.saturating_mul(amount_decimal).floor();
+
+            // Convert the Decimal to a u64
+            // We can use expect because we know that the Decimal is floored
+            let split_amount = split_amount
+                .to_u64()
+                .expect("Floored Decimal should be representable as u64");
+
+            let split_amount = monero::Amount::from_pico(split_amount);
+            result.push((address.address, split_amount));
+        }
+
+        // Give the remainder to the last address
+        let distributed_amount =
+            Amount::from_piconero(result.iter().map(|(_, amount)| amount.as_pico()).sum());
+        let remainder = amount - distributed_amount.into();
+
+        result.push((last_address.address, remainder));
+
+        Ok(result)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &LabeledMoneroAddress> {
+        self.0.iter()
+    }
+}
+
+impl From<::monero::Address> for MoneroAddressPool {
+    fn from(address: ::monero::Address) -> Self {
+        Self(vec![LabeledMoneroAddress {
+            address,
+            percentage: Decimal::from(1),
+            label: "user address".to_string(),
+        }])
+    }
+}
+
 impl Add for Amount {
     type Output = Amount;
 

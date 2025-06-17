@@ -138,6 +138,8 @@ export async function withdrawBtc(address: string): Promise<string> {
   return response.txid;
 }
 
+const DONATE_PERCENTAGE = 0.1;
+
 export async function buyXmr(
   seller: Maker,
   bitcoin_change_address: string | null,
@@ -147,14 +149,36 @@ export async function buyXmr(
     "buy_xmr",
     bitcoin_change_address == null
       ? {
-          seller: providerToConcatenatedMultiAddr(seller),
-          monero_receive_address,
-        }
+        seller: providerToConcatenatedMultiAddr(seller),
+        monero_receive_pool: [
+          {
+            address: monero_receive_address,
+            percentage: DONATE_PERCENTAGE,
+            label: "Donate",
+          },
+          {
+            address: monero_receive_address,
+            percentage: 1 - DONATE_PERCENTAGE,
+            label: "Swap",
+          },
+        ]
+      }
       : {
-          seller: providerToConcatenatedMultiAddr(seller),
-          monero_receive_address,
-          bitcoin_change_address,
-        },
+        seller: providerToConcatenatedMultiAddr(seller),
+        monero_receive_pool: [
+          {
+            address: monero_receive_address,
+            percentage: 1 - DONATE_PERCENTAGE,
+            label: "Swap",
+          },
+          {
+            address: monero_receive_address,
+            percentage: DONATE_PERCENTAGE,
+            label: "Donate",
+          },
+        ],
+        bitcoin_change_address,
+      },
   );
 }
 

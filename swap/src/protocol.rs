@@ -1,12 +1,14 @@
+use crate::monero::MoneroAddressPool;
 use crate::protocol::alice::swap::is_complete as alice_is_complete;
 use crate::protocol::alice::AliceState;
 use crate::protocol::bob::swap::is_complete as bob_is_complete;
 use crate::protocol::bob::BobState;
 use crate::{bitcoin, monero};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use conquer_once::Lazy;
 use libp2p::{Multiaddr, PeerId};
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use sigma_fun::ext::dl_secp256k1_ed25519_eq::{CrossCurveDLEQ, CrossCurveDLEQProof};
@@ -139,8 +141,12 @@ impl TryInto<AliceState> for State {
 pub trait Database {
     async fn insert_peer_id(&self, swap_id: Uuid, peer_id: PeerId) -> Result<()>;
     async fn get_peer_id(&self, swap_id: Uuid) -> Result<PeerId>;
-    async fn insert_monero_address(&self, swap_id: Uuid, address: monero::Address) -> Result<()>;
-    async fn get_monero_address(&self, swap_id: Uuid) -> Result<monero::Address>;
+    async fn insert_monero_address_pool(
+        &self,
+        swap_id: Uuid,
+        address: MoneroAddressPool,
+    ) -> Result<()>;
+    async fn get_monero_address_pool(&self, swap_id: Uuid) -> Result<MoneroAddressPool>;
     async fn get_monero_addresses(&self) -> Result<Vec<monero::Address>>;
     async fn insert_address(&self, peer_id: PeerId, address: Multiaddr) -> Result<()>;
     async fn get_addresses(&self, peer_id: PeerId) -> Result<Vec<Multiaddr>>;

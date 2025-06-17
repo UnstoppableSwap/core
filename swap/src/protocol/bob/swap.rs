@@ -6,6 +6,7 @@ use crate::cli::api::tauri_bindings::{
 };
 use crate::cli::EventLoopHandle;
 use crate::common::retry;
+use crate::monero::MoneroAddressPool;
 use crate::network::cooperative_xmr_redeem_after_punish::Response::{Fullfilled, Rejected};
 use crate::network::swap_setup::bob::NewSwap;
 use crate::protocol::bob::state::*;
@@ -75,7 +76,7 @@ pub async fn run_until(
             swap.db.clone(),
             swap.bitcoin_wallet.as_ref(),
             swap.monero_wallet.clone(),
-            swap.monero_receive_address,
+            swap.monero_receive_pool.clone(),
             swap.event_emitter.clone(),
         )
         .await?;
@@ -102,7 +103,7 @@ async fn next_state(
     db: Arc<dyn Database + Send + Sync>,
     bitcoin_wallet: &bitcoin::Wallet,
     monero_wallet: Arc<monero::Wallets>,
-    monero_receive_address: monero::Address,
+    monero_receive_pool: MoneroAddressPool,
     event_emitter: Option<TauriHandle>,
 ) -> Result<BobState> {
     tracing::debug!(%state, "Advancing state");
@@ -513,25 +514,15 @@ async fn next_state(
         BobState::BtcRedeemed(state) => {
             event_emitter.emit_swap_progress_event(swap_id, TauriSwapProgressEvent::BtcRedeemed);
 
-            let xmr_redeem_txids = retry(
-                "Refund Monero",
-                || async {
-                    state
-                        .redeem_xmr(&monero_wallet, swap_id, monero_receive_address)
-                        .await
-                        .map_err(backoff::Error::transient)
-                },
-                None,
-                None,
-            )
-            .await
-            .context("Failed to redeem Monero")?;
+            let xmr_redeem_txids = state
+                .redeem_xmr(&monero_wallet, swap_id, monero_receive_pool.clone())
+                .await?;
 
             event_emitter.emit_swap_progress_event(
                 swap_id,
                 TauriSwapProgressEvent::XmrRedeemInMempool {
                     xmr_redeem_txids,
-                    xmr_redeem_address: monero_receive_address,
+                    xmr_redeem_address: monero_receive_pool,
                 },
             );
 
@@ -725,26 +716,16 @@ async fn next_state(
 
                     let state5 = state.attempt_cooperative_redeem(s_a, lock_transfer_proof);
 
-                    match retry(
-                        "Redeeming Monero",
-                        || async {
-                            state5
-                                .redeem_xmr(&monero_wallet, swap_id, monero_receive_address)
-                                .await
-                                .map_err(backoff::Error::transient)
-                        },
-                        Duration::from_secs(2 * 60),
-                        None,
-                    )
-                    .await
-                    .context("Failed to redeem Monero")
+                    match state5
+                        .redeem_xmr(&monero_wallet, swap_id, monero_receive_pool.clone())
+                        .await
                     {
                         Ok(xmr_redeem_txids) => {
                             event_emitter.emit_swap_progress_event(
                                 swap_id,
                                 TauriSwapProgressEvent::XmrRedeemInMempool {
                                     xmr_redeem_txids,
-                                    xmr_redeem_address: monero_receive_address,
+                                    xmr_redeem_address: monero_receive_pool,
                                 },
                             );
 
@@ -811,7 +792,7 @@ async fn next_state(
                     // We don't have the txids of the redeem transaction here, so we can't emit them
                     // We return an empty array instead
                     xmr_redeem_txids: vec![],
-                    xmr_redeem_address: monero_receive_address,
+                    xmr_redeem_address: monero_receive_pool,
                 },
             );
             BobState::XmrRedeemed { tx_lock_id }

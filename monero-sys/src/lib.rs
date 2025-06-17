@@ -20,6 +20,7 @@ use std::{
 use anyhow::{anyhow, bail, Context, Result};
 use backoff::{future, retry_notify};
 use cxx::let_cxx_string;
+use cxx::{let_cxx_string, CxxString, CxxVector, UniquePtr};
 use tokio::sync::{
     mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
     oneshot,
@@ -413,6 +414,18 @@ impl WalletHandle {
     /// Get the creation height of the wallet.
     pub async fn creation_height(&self) -> u64 {
         self.call(move |wallet| wallet.creation_height()).await
+    }
+
+    /// Sweep all funds to a set of addresses.
+    pub async fn sweep_multi(
+        &self,
+        addresses: &[monero::Address],
+        ratios: &[f64],
+    ) -> anyhow::Result<Vec<String>> {
+        let addresses = addresses.to_vec();
+        let ratios = ratios.to_vec();
+        self.call(move |wallet| wallet.sweep_multi(&addresses, &ratios))
+            .await
     }
 
     /// Get the unlocked balance of the wallet.
@@ -1435,6 +1448,60 @@ impl FfiWallet {
         // otherwise it might be null.
         let txids: Vec<String> = ffi::pendingTransactionTxIds(&pending_tx)
             .context("Failed to get txids of pending transaction: FFI call failed with exception")?
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect();
+
+        // Publish the transaction
+        let result = pending_tx
+            .publish()
+            .context("Failed to publish transaction");
+
+        // Dispose of the transaction to avoid leaking memory.
+        self.dispose_transaction(pending_tx);
+
+        result.map(|_| txids)
+    }
+
+    /// Sweep all funds to a set of addresses with a set of ratios.
+    fn sweep_multi(
+        &mut self,
+        addresses: &[monero::Address],
+        ratios: &[f64],
+    ) -> anyhow::Result<Vec<String>> {
+        tracing::info!(
+            "Sweeping funds to {} addresses, refreshing wallet first",
+            addresses.len()
+        );
+
+        self.refresh_blocking()?;
+
+        // ensure wallet is synced and funds unlocked
+        self.refresh_blocking()?;
+
+        // Build a C++ vector of destination addresses
+        let mut cxx_addrs: UniquePtr<CxxVector<CxxString>> = CxxVector::<CxxString>::new();
+        for addr in addresses {
+            let_cxx_string!(s = addr.to_string());
+            ffi::vector_string_push_back(cxx_addrs.pin_mut(), &s);
+        }
+
+        // Build a C++ vector of ratios
+        let mut cxx_ratios: UniquePtr<CxxVector<f64>> = CxxVector::<f64>::new();
+        for &r in ratios {
+            cxx_ratios.pin_mut().push(r);
+        }
+
+        // Create the multi-sweep pending transaction
+        let mut pending_tx = PendingTransaction(ffi::createMultiSweepTransaction(
+            self.inner.pinned(),
+            cxx_addrs.as_ref().unwrap(),
+            cxx_ratios.as_ref().unwrap(),
+        ));
+
+        // Get the txids from the pending transaction before we publish,
+        // otherwise it might be null.
+        let txids: Vec<String> = ffi::pendingTransactionTxIds(&pending_tx)
             .into_iter()
             .map(|s| s.to_string())
             .collect();
