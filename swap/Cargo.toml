@@ -40,7 +40,7 @@ ed25519-dalek = "1"
 futures = { version = "0.3", default-features = false, features = ["std"] }
 hex = "0.4"
 libp2p = { version = "0.53.2", features = ["tcp", "yamux", "dns", "noise", "request-response", "ping", "rendezvous", "identify", "macros", "cbor", "json", "tokio", "serde", "rsa"] }
-libp2p-community-tor = { git = "https://github.com/umgefahren/libp2p-tor", branch = "main", features = ["listen-onion-service"] }
+libp2p-community-tor = { git = "https://github.com/nabijaczleweli/libp2p-tor", branch = "US4", features = ["listen-onion-service", "legacy-tor-provider"] }
 moka = { version = "0.12", features = ["sync", "future"] }
 monero = { version = "0.12", features = ["serde_support"] }
 monero-rpc = { path = "../monero-rpc" }
