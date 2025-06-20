@@ -49,7 +49,6 @@ monero-sys = { path = "../monero-sys" }
 once_cell = "1.19"
 pem = "3.0"
 proptest = "1"
-qrcode = "0.14"
 rand = "0.8"
 rand_chacha = "0.3"
 regex = "1.10"

@@ -148,11 +148,6 @@ impl NodePool {
         &self,
         limit: usize,
     ) -> Result<Vec<crate::database::MoneroNode>> {
-        debug!(
-            "Getting top reliable nodes for network {} (target: {})",
-            self.network, limit
-        );
-
         // Step 1: Try primary fetch - get top nodes based on recent success (last 200 health checks)
         let mut top_nodes = self
             .db
@@ -160,35 +155,17 @@ impl NodePool {
             .await
             .context("Failed to get top nodes by recent success")?;
 
-        debug!(
-            "Primary fetch returned {} nodes for network {} (target: {})",
-            top_nodes.len(),
-            self.network,
-            limit
-        );
-
         // Step 2: If primary fetch didn't return enough nodes, fall back to any identified nodes with successful health checks
         if top_nodes.len() < limit {
-            debug!("Primary fetch returned insufficient nodes, falling back to any identified nodes with successful health checks");
             top_nodes = self
                 .db
                 .get_identified_nodes_with_success(&self.network)
                 .await?;
-
-            debug!(
-                "Fallback fetch returned {} nodes with successful health checks for network {}",
-                top_nodes.len(),
-                self.network
-            );
         }
 
         // Step 3: Check if we still don't have enough nodes
         if top_nodes.len() < limit {
             let needed = limit - top_nodes.len();
-            debug!(
-                "Pool needs {} more nodes to reach target of {} for network {}",
-                needed, limit, self.network
-            );
 
             // Step 4: Collect exclusion IDs from nodes already selected
             let exclude_ids: Vec<i64> = top_nodes.iter().filter_map(|node| node.id).collect();
@@ -199,18 +176,12 @@ impl NodePool {
                 .get_random_nodes(&self.network, needed as i64, &exclude_ids)
                 .await?;
 
-            debug!(
-                "Secondary fetch returned {} random nodes for network {}",
-                random_fillers.len(),
-                self.network
-            );
-
             // Step 6: Combine lists
             top_nodes.extend(random_fillers);
         }
 
         debug!(
-            "Final pool size: {} nodes for network {} (target: {})",
+            "Pool size: {} nodes for network {} (target was {} nodes)",
             top_nodes.len(),
             self.network,
             limit

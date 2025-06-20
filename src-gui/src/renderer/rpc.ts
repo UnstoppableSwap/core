@@ -139,19 +139,32 @@ export async function withdrawBtc(address: string): Promise<string> {
 }
 
 export async function buyXmr(
-  seller: Maker,
   bitcoin_change_address: string | null,
   monero_receive_address: string,
 ) {
+  // Get all available makers from the Redux store
+  const state = store.getState();
+  const allMakers = [
+    ...(state.makers.registry.makers || []),
+    ...state.makers.rendezvous.makers,
+  ];
+
+  // Convert all makers to multiaddr format
+  const sellers = allMakers.map((maker) =>
+    providerToConcatenatedMultiAddr(maker),
+  );
+
   await invoke<BuyXmrArgs, BuyXmrResponse>(
     "buy_xmr",
     bitcoin_change_address == null
       ? {
-          seller: providerToConcatenatedMultiAddr(seller),
+          rendezvous_points: PRESET_RENDEZVOUS_POINTS,
+          sellers,
           monero_receive_address,
         }
       : {
-          seller: providerToConcatenatedMultiAddr(seller),
+          rendezvous_points: PRESET_RENDEZVOUS_POINTS,
+          sellers,
           monero_receive_address,
           bitcoin_change_address,
         },

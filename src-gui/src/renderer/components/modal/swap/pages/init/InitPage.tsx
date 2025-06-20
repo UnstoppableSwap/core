@@ -17,11 +17,8 @@ export default function InitPage() {
   const [redeemAddressValid, setRedeemAddressValid] = useState(false);
   const [refundAddressValid, setRefundAddressValid] = useState(false);
 
-  const selectedMaker = useAppSelector((state) => state.makers.selectedMaker);
-
   async function init() {
     await buyXmr(
-      selectedMaker,
       useExternalRefundAddress ? refundAddress : null,
       redeemAddress,
     );
@@ -82,8 +79,7 @@ export default function InitPage() {
         <PromiseInvokeButton
           disabled={
             (!refundAddressValid && useExternalRefundAddress) ||
-            !redeemAddressValid ||
-            !selectedMaker
+            !redeemAddressValid
           }
           variant="contained"
           color="primary"

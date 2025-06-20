@@ -292,3 +292,21 @@ export function isBitcoinSyncProgress(
 ): progress is TauriBitcoinSyncProgress {
   return progress.componentName === "SyncingBitcoinWallet";
 }
+
+export type PendingSelectMakerApprovalRequest = PendingApprovalRequest & {
+  content: {
+    details: { type: "SelectMaker" };
+  };
+};
+
+export function isPendingSelectMakerApprovalEvent(
+  event: ApprovalRequest,
+): event is PendingSelectMakerApprovalRequest {
+  // Check if the request is pending
+  if (event.state !== "Pending") {
+    return false;
+  }
+
+  // Check if the request is a SelectMaker request
+  return event.content.details.type === "SelectMaker";
+}
