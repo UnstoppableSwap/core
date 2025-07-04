@@ -313,7 +313,7 @@ dependencies = [
  "tor-hsservice",
  "tor-keymgr",
  "tor-linkspec",
- "tor-llcrypto",
+ "tor-llcrypto 0.25.0",
  "tor-memquota",
  "tor-netdir",
  "tor-netdoc",
@@ -381,6 +381,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "asn1-rs"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56624a96882bb8c26d61312ae18cb45868e5a9992ea73c58e45c3101e56a1e60"
+dependencies = [
+ "asn1-rs-derive 0.6.0",
+ "asn1-rs-impl 0.2.0",
+ "displaydoc",
+ "nom",
+ "num-traits",
+ "rusticata-macros",
+ "thiserror 2.0.12",
+]
+
+[[package]]
 name = "asn1-rs-derive"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -397,6 +412,18 @@ name = "asn1-rs-derive"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "965c2d33e53cb6b267e148a4cb0760bc01f4904c1cd4bb4002a085bb016d1490"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.104",
+ "synstructure 0.13.2",
+]
+
+[[package]]
+name = "asn1-rs-derive"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3109e49b1e4909e9db6515a30c633684d68cdeaa252f215214cb4fa1a5bfee2c"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2415,6 +2442,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "der-parser"
+version = "10.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "07da5016415d5a3c4dd39b11ed26f915f52fc4e0dc197d87908bc916e51bc1a6"
+dependencies = [
+ "asn1-rs 0.7.1",
+ "cookie-factory",
+ "displaydoc",
+ "nom",
+ "num-traits",
+ "rusticata-macros",
+]
+
+[[package]]
 name = "deranged"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2757,6 +2798,19 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.104",
+]
+
+[[package]]
+name = "domain"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5cd50aea158e9a57c9c9075ca7a3dfa4c08d9a468b405832383876f9df85379b"
+dependencies = [
+ "bytes",
+ "octseq",
+ "pin-project-lite",
+ "rand 0.8.5",
+ "time 0.3.41",
 ]
 
 [[package]]
@@ -5135,7 +5189,7 @@ dependencies = [
 [[package]]
 name = "libp2p-community-tor"
 version = "0.5.0"
-source = "git+https://github.com/umgefahren/libp2p-tor?rev=e6b913e0f1ac1fc90b3ee4dd31b5511140c4a9af#e6b913e0f1ac1fc90b3ee4dd31b5511140c4a9af"
+source = "git+https://github.com/nabijaczleweli/libp2p-tor?branch=US4#7dbf61e11bc031ae6edb7ccd0619ac5c71a52623"
 dependencies = [
  "anyhow",
  "arti-client",
@@ -5146,6 +5200,7 @@ dependencies = [
  "tokio",
  "tor-cell",
  "tor-hsservice",
+ "tor-interface",
  "tor-proto",
  "tor-rtcompat",
  "tracing",
@@ -6718,6 +6773,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "octseq"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "126c3ca37c9c44cec575247f43a3e4374d8927684f129d2beeb0d2cef262fe12"
+dependencies = [
+ "bytes",
+]
+
+[[package]]
 name = "oid-registry"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7842,6 +7906,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "rand_jitter"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b16df48f071248e67b8fc5e866d9448d45c08ad8b672baaaf796e2f15e606ff0"
+dependencies = [
+ "libc",
+ "rand_core 0.9.3",
+ "winapi",
+]
+
+[[package]]
 name = "rand_pcg"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7895,6 +7970,15 @@ dependencies = [
  "ring 0.16.20",
  "time 0.3.41",
  "yasna",
+]
+
+[[package]]
+name = "rdrand"
+version = "0.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d92195228612ac8eed47adbc2ed0f04e513a4ccb98175b6f2bd04d963b533655"
+dependencies = [
+ "rand_core 0.6.4",
 ]
 
 [[package]]
@@ -9302,6 +9386,16 @@ checksum = "e22376abed350d73dd1cd119b57ffccad95b4e585a7cda43e286245ce23c0678"
 dependencies = [
  "libc",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "socks"
+version = "0.3.4"
+source = "git+https://github.com/nabijaczleweli/rust-socks#fbe04c36a4a2673b0989db3ccb6db6135c73adb2"
+dependencies = [
+ "byteorder",
+ "libc",
+ "winapi",
 ]
 
 [[package]]
@@ -10914,7 +11008,7 @@ dependencies = [
  "safelog",
  "thiserror 2.0.12",
  "tor-error",
- "tor-llcrypto",
+ "tor-llcrypto 0.25.0",
  "zeroize",
 ]
 
@@ -10941,7 +11035,7 @@ dependencies = [
  "tor-error",
  "tor-hscrypto",
  "tor-linkspec",
- "tor-llcrypto",
+ "tor-llcrypto 0.25.0",
  "tor-memquota",
  "tor-units",
  "void",
@@ -10960,7 +11054,7 @@ dependencies = [
  "thiserror 2.0.12",
  "tor-bytes",
  "tor-checkable",
- "tor-llcrypto",
+ "tor-llcrypto 0.25.0",
 ]
 
 [[package]]
@@ -10986,7 +11080,7 @@ dependencies = [
  "tor-config",
  "tor-error",
  "tor-linkspec",
- "tor-llcrypto",
+ "tor-llcrypto 0.25.0",
  "tor-memquota",
  "tor-netdir",
  "tor-proto",
@@ -11006,7 +11100,7 @@ dependencies = [
  "humantime",
  "signature 2.2.0",
  "thiserror 2.0.12",
- "tor-llcrypto",
+ "tor-llcrypto 0.25.0",
 ]
 
 [[package]]
@@ -11114,7 +11208,7 @@ dependencies = [
  "digest 0.10.7",
  "hex",
  "thiserror 2.0.12",
- "tor-llcrypto",
+ "tor-llcrypto 0.25.0",
 ]
 
 [[package]]
@@ -11138,7 +11232,7 @@ dependencies = [
  "tor-error",
  "tor-hscrypto",
  "tor-linkspec",
- "tor-llcrypto",
+ "tor-llcrypto 0.25.0",
  "tor-netdoc",
  "tor-proto",
  "tor-rtcompat",
@@ -11188,7 +11282,7 @@ dependencies = [
  "tor-dirclient",
  "tor-error",
  "tor-guardmgr",
- "tor-llcrypto",
+ "tor-llcrypto 0.25.0",
  "tor-netdir",
  "tor-netdoc",
  "tor-persist",
@@ -11257,7 +11351,7 @@ dependencies = [
  "tor-config",
  "tor-error",
  "tor-linkspec",
- "tor-llcrypto",
+ "tor-llcrypto 0.25.0",
  "tor-netdir",
  "tor-netdoc",
  "tor-persist",
@@ -11301,7 +11395,7 @@ dependencies = [
  "tor-hscrypto",
  "tor-keymgr",
  "tor-linkspec",
- "tor-llcrypto",
+ "tor-llcrypto 0.25.0",
  "tor-memquota",
  "tor-netdir",
  "tor-netdoc",
@@ -11332,7 +11426,7 @@ dependencies = [
  "tor-basic-utils",
  "tor-bytes",
  "tor-error",
- "tor-llcrypto",
+ "tor-llcrypto 0.25.0",
  "tor-memquota",
  "tor-units",
  "void",
@@ -11384,7 +11478,7 @@ dependencies = [
  "tor-hscrypto",
  "tor-keymgr",
  "tor-linkspec",
- "tor-llcrypto",
+ "tor-llcrypto 0.25.0",
  "tor-log-ratelim",
  "tor-netdir",
  "tor-netdoc",
@@ -11395,6 +11489,31 @@ dependencies = [
  "tor-rtcompat",
  "tracing",
  "void",
+]
+
+[[package]]
+name = "tor-interface"
+version = "0.5.0"
+source = "git+https://github.com/nabijaczleweli/gosling?rev=b83d0dc0b2c634fa2f7036d3aa2ead14740ddbd4#b83d0dc0b2c634fa2f7036d3aa2ead14740ddbd4"
+dependencies = [
+ "curve25519-dalek 4.1.3",
+ "data-encoding",
+ "data-encoding-macro",
+ "domain",
+ "hmac",
+ "idna",
+ "rand 0.9.1",
+ "rand_core 0.9.3",
+ "regex",
+ "sha1",
+ "sha2 0.10.9",
+ "sha3",
+ "signature 1.6.4",
+ "socks",
+ "static_assertions",
+ "thiserror 1.0.69",
+ "tor-llcrypto 0.31.0",
+ "zeroize",
 ]
 
 [[package]]
@@ -11413,7 +11532,7 @@ dependencies = [
  "thiserror 2.0.12",
  "tor-error",
  "tor-hscrypto",
- "tor-llcrypto",
+ "tor-llcrypto 0.25.0",
 ]
 
 [[package]]
@@ -11446,7 +11565,7 @@ dependencies = [
  "tor-error",
  "tor-hscrypto",
  "tor-key-forge",
- "tor-llcrypto",
+ "tor-llcrypto 0.25.0",
  "tor-persist",
  "tracing",
  "walkdir",
@@ -11475,7 +11594,7 @@ dependencies = [
  "tor-basic-utils",
  "tor-bytes",
  "tor-config",
- "tor-llcrypto",
+ "tor-llcrypto 0.25.0",
  "tor-memquota",
  "tor-protover",
 ]
@@ -11509,6 +11628,44 @@ dependencies = [
  "subtle",
  "thiserror 2.0.12",
  "tor-memquota",
+ "visibility",
+ "x25519-dalek",
+ "zeroize",
+]
+
+[[package]]
+name = "tor-llcrypto"
+version = "0.31.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4def0c5674fa67c5b8a8fb8814c0381570e4866842c233ac98982e78779339bf"
+dependencies = [
+ "aes",
+ "base64ct",
+ "ctr",
+ "curve25519-dalek 4.1.3",
+ "der-parser 10.0.0",
+ "derive_more 2.0.1",
+ "digest 0.10.7",
+ "ed25519-dalek 2.1.1",
+ "educe",
+ "getrandom 0.3.3",
+ "hex",
+ "once_cell",
+ "rand 0.9.1",
+ "rand_chacha 0.9.0",
+ "rand_core 0.6.4",
+ "rand_core 0.9.3",
+ "rand_jitter",
+ "rdrand",
+ "rsa",
+ "safelog",
+ "serde",
+ "sha1",
+ "sha2 0.10.9",
+ "sha3",
+ "signature 2.2.0",
+ "subtle",
+ "thiserror 2.0.12",
  "visibility",
  "x25519-dalek",
  "zeroize",
@@ -11583,7 +11740,7 @@ dependencies = [
  "tor-error",
  "tor-hscrypto",
  "tor-linkspec",
- "tor-llcrypto",
+ "tor-llcrypto 0.25.0",
  "tor-netdoc",
  "tor-protover",
  "tor-units",
@@ -11627,7 +11784,7 @@ dependencies = [
  "tor-error",
  "tor-hscrypto",
  "tor-linkspec",
- "tor-llcrypto",
+ "tor-llcrypto 0.25.0",
  "tor-protover",
  "tor-units",
  "void",
@@ -11702,7 +11859,7 @@ dependencies = [
  "tor-error",
  "tor-hscrypto",
  "tor-linkspec",
- "tor-llcrypto",
+ "tor-llcrypto 0.25.0",
  "tor-log-ratelim",
  "tor-memquota",
  "tor-rtcompat",
