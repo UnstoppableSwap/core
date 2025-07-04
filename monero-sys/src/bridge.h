@@ -4,6 +4,7 @@
 
 #include "../monero/src/wallet/api/wallet2_api.h"
 #include "../monero/src/wallet/api/wallet_manager.h"
+#include "../monero/src/wallet/api/pending_transaction.h"
 
 /**
  * This file contains some C++ glue code needed to make the FFI work.
@@ -160,22 +161,22 @@ namespace Monero
         // Build the actual multi‐dest transaction
         // No change left -> wallet drops it
         // N outputs, fee should be the same as the one estimated above
-        
+
         // Find the highest output and choose it for subtract_fee_indices
         std::set<uint32_t> subtract_fee_indices;
         auto max_it = std::max_element(amounts.begin(), amounts.end());
         size_t max_index = std::distance(amounts.begin(), max_it);
         subtract_fee_indices.insert(static_cast<uint32_t>(max_index));
-        
+
         return wallet.createTransactionMultDest(
             dest_addresses,
             "", // No Payment ID
             Monero::optional<std::vector<uint64_t>>(amounts),
             0, // No mixin count
             PendingTransaction::Priority_Default,
-            0, // subaddr_account
+            0,  // subaddr_account
             {}, // subaddr_indices
-            subtract_fee_indices); // Subtract fee from all outputs
+            subtract_fee_indices);
     }
 
     inline bool setWalletDaemon(Wallet &wallet, const std::string &daemon_address)
@@ -212,6 +213,36 @@ namespace Monero
     inline std::unique_ptr<std::vector<std::string>> pendingTransactionTxIds(const PendingTransaction &tx)
     {
         return std::make_unique<std::vector<std::string>>(tx.txid());
+    }
+
+    /**
+     * Get the change amount from a pending transaction.
+     * This requires accessing the internal PendingTransactionImpl as the public API doesn't expose change information.
+     *
+     * Returns the total change amount across all change outputs, or 0 if there's no change.
+     */
+    inline uint64_t pendingTransactionChangeAmount(const PendingTransaction &tx)
+    {
+        // Cast to the implementation to access internal data
+        // Note: This assumes PendingTransactionImpl is the concrete implementation
+        const auto *impl = dynamic_cast<const PendingTransactionImpl *>(&tx);
+        if (!impl)
+        {
+            return 0;
+        }
+
+        // Access the internal transaction data
+        // Each pending_tx in m_pending_tx has a change_dts field that contains the change destination
+        uint64_t total_change = 0;
+
+        // Iterate through all pending transactions (in case of split transactions)
+        for (const auto &ptx : impl->m_pending_tx)
+        {
+            // The change amount is stored in the change_dts (change destination) field
+            total_change += ptx.change_dts.amount;
+        }
+
+        return total_change;
     }
 
     inline std::unique_ptr<std::string> walletFilename(const Wallet &wallet)

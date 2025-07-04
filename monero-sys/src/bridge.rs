@@ -1,7 +1,7 @@
 //! This module contains the bridge between the Monero C++ API and the Rust code.
 //! It uses the [cxx](https://cxx.rs) crate to generate the actual bindings.
 
-use cxx::CxxString;
+use cxx::{CxxString, CxxVector, UniquePtr};
 use tracing::Level;
 
 /// This is the main ffi module that exposes the Monero C++ API to Rust.
@@ -255,6 +255,10 @@ pub mod ffi {
             tx: &PendingTransaction,
         ) -> Result<UniquePtr<CxxVector<CxxString>>>;
 
+        /// Get the change amount from a pending transaction.
+        /// Returns the total change amount across all change outputs.
+        fn pendingTransactionChangeAmount(tx: &PendingTransaction) -> Result<u64>;
+
         /// Get the transaction key (r) for a given txid.
         fn walletGetTxKey(wallet: &Wallet, txid: &CxxString) -> Result<UniquePtr<CxxString>>;
 
@@ -270,6 +274,7 @@ pub mod ffi {
             self: Pin<&mut Wallet>,
             tx: *mut PendingTransaction,
         ) -> Result<()>;
+
     }
 }
 
