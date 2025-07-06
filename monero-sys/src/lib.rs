@@ -31,6 +31,8 @@ use bridge::ffi;
 /// A handle which can communicate with the wallet thread via channels.
 pub struct WalletHandle {
     call_sender: UnboundedSender<Call>,
+    /// The strategy to use for change management.
+    change_management: ChangeManagement,
 }
 
 impl std::fmt::Display for WalletHandle {
@@ -123,6 +125,21 @@ pub struct Daemon {
     pub ssl: bool,
 }
 
+/// Configure how the wallet will handle change, if any.
+#[derive(Debug, Clone, Copy, Default)]
+pub enum ChangeManagement {
+    /// Handle change as usual.
+    #[default]
+    Default,
+    /// Split change into `extra_outputs + 1` outputs, if it's more than a specified threshold
+    Split {
+        /// The number of extra outputs to create.
+        extra_outputs: usize,
+        /// The change is only split, if it's more than this threshold.
+        threshold: monero::Amount,
+    },
+}
+
 /// A wrapper around a pending transaction.
 pub struct PendingTransaction(*mut ffi::PendingTransaction);
 
@@ -133,6 +150,7 @@ impl WalletHandle {
         daemon: Daemon,
         network: monero::Network,
         background_sync: bool,
+        change_management: ChangeManagement,
     ) -> anyhow::Result<Self> {
         let (call_sender, call_receiver) = unbounded_channel();
 
@@ -166,7 +184,10 @@ impl WalletHandle {
             .context("Couldn't start wallet thread")?;
 
         // Ensure the wallet was created successfully by performing a dummy call
-        let wallet = WalletHandle { call_sender };
+        let wallet = WalletHandle {
+            call_sender,
+            change_management,
+        };
         wallet
             .check_wallet()
             .await
@@ -185,6 +206,7 @@ impl WalletHandle {
         restore_height: u64,
         background_sync: bool,
         daemon: Daemon,
+        change_management: ChangeManagement,
     ) -> anyhow::Result<Self> {
         let (call_sender, call_receiver) = unbounded_channel();
 
@@ -245,7 +267,10 @@ impl WalletHandle {
             })
             .context("Couldn't start wallet thread")?;
 
-        let wallet = WalletHandle { call_sender };
+        let wallet = WalletHandle {
+            call_sender,
+            change_management,
+        };
         // Make a test call to ensure that the wallet is created.
         wallet
             .check_wallet()
@@ -269,6 +294,7 @@ impl WalletHandle {
         restore_height: u64,
         background_sync: bool,
         daemon: Daemon,
+        change_management: ChangeManagement,
     ) -> anyhow::Result<Self> {
         let (call_sender, call_receiver) = unbounded_channel();
 
@@ -318,7 +344,10 @@ impl WalletHandle {
             })
             .context("Couldn't start wallet thread")?;
 
-        let wallet = WalletHandle { call_sender };
+        let wallet = WalletHandle {
+            call_sender,
+            change_management,
+        };
         // Make a test call to ensure that the wallet is created.
         wallet
             .check_wallet()
@@ -400,7 +429,8 @@ impl WalletHandle {
         let address = *address;
 
         retry_notify(backoff(None, None), || async {
-            self.call(move |wallet| wallet.transfer(&address, amount))
+            let change_management = self.change_management.clone();
+            self.call(move |wallet| wallet.transfer(&address, amount, change_management))
                 .await
                 .map_err(backoff::Error::transient)
         }, |error, duration: Duration| {
@@ -440,11 +470,11 @@ impl WalletHandle {
     /// wallet
     pub async fn sweep_multi(
         &self,
-        addresses: &[Option<monero::Address>],
+        addresses: &[monero::Address],
         percentages: &[f64],
     ) -> anyhow::Result<Vec<TxReceipt>> {
         tracing::debug!(addresses=?addresses, percentages=?percentages, "Sweeping multi");
-        
+
         let percentages = percentages.to_vec();
         let addresses = addresses.to_vec();
 
@@ -677,12 +707,12 @@ impl WalletHandle {
     }
 
     /// Sign a message with the wallet's private key.
-    /// 
+    ///
     /// # Arguments
     /// * `message` - The message to sign (arbitrary byte data)
     /// * `address` - The address to use for signing (uses main address if None)
     /// * `sign_with_view_key` - Whether to sign with view key instead of spend key (default: false)
-    /// 
+    ///
     /// # Returns
     /// A proof type prefix + base58 encoded signature
     pub async fn sign_message(
@@ -693,7 +723,7 @@ impl WalletHandle {
     ) -> anyhow::Result<String> {
         let message = message.to_string();
         let address = address.map(|s| s.to_string());
-        
+
         self.call(move |wallet| {
             wallet.sign_message(&message, address.as_deref(), sign_with_view_key)
         })
@@ -1427,19 +1457,73 @@ impl FfiWallet {
     /// Transfer a specified amount of monero to a specified address and return a receipt containing
     /// the transaction id, transaction key and current blockchain height. This can be used later
     /// to prove the transfer or to wait for confirmations.
+    ///
+    /// If `minimize_change` is enabled, the change will be sent to multiple smaller outputs.
+    /// This helps avoiding locking large UTXOs for small transfers for 10 blocks.
     fn transfer(
         &mut self,
         address: &monero::Address,
         amount: monero::Amount,
+        change_management: ChangeManagement,
     ) -> anyhow::Result<TxReceipt> {
+        tracing::debug!(destination_address=%address, "Transferring {}", amount);
+
         let_cxx_string!(address = address.to_string());
         let amount = amount.as_pico();
 
         // First we need to create a pending transaction.
-        let mut pending_tx = PendingTransaction(
-            ffi::createTransaction(self.inner.pinned(), &address, amount)
-                .context("Failed to create transaction: FFI call failed with exception")?,
-        );
+        let raw_transaction = ffi::createTransaction(self.inner.pinned(), &address, amount)
+            .context("Failed to create transaction: FFI call failed with exception")?;
+        let mut pending_tx = PendingTransaction(raw_transaction);
+
+        match change_management {
+            // Default behavior: let Monero handle change
+            ChangeManagement::Default => {}
+            // If `split_change` is enabled, we split the change into multiple outputs
+            ChangeManagement::Split {
+                extra_outputs,
+                threshold,
+            } => {
+                let change = pending_tx
+                    .change()
+                    .context("Failed to get change amount: FFI call failed with exception")?;
+
+                let extra_change_outputs = if change > threshold { extra_outputs } else { 0 };
+                let change_per_extra_output = change / (extra_change_outputs + 1) as u64; // won't panic: always > 0
+
+                tracing::debug!(change=%change, "Splitting change into {} outputs", extra_change_outputs + 1);
+
+                // Create a multi dest tx which spends the specified amount to the destination address
+                // and splits the change into extra outputs.
+                let mut addresses = CxxVector::<CxxString>::new();
+
+                // Add the destination address
+                let self_address = self.main_address();
+                let_cxx_string!(self_address = self_address.to_string());
+                ffi::vector_string_push_back(addresses.pin_mut(), &self_address);
+
+                // Add the extra change outputs
+                for _ in 0..extra_change_outputs {
+                    ffi::vector_string_push_back(addresses.pin_mut(), &self_address);
+                }
+
+                // Add the amounts
+                let mut amounts = CxxVector::<u64>::new();
+                amounts.pin_mut().push(amount);
+                for _ in 0..extra_change_outputs {
+                    amounts.pin_mut().push(change_per_extra_output.as_pico());
+                }
+
+                let mut tx = PendingTransaction(ffi::createTransactionMultiDest(
+                    self.inner.pinned(),
+                    &addresses,
+                    &amounts,
+                ));
+
+                std::mem::swap(&mut pending_tx, &mut tx); // swap the pending transaction with the new one
+                self.dispose_transaction(tx); // dispose the old transaction
+            }
+        }
 
         // Get the txid from the pending transaction before we publish,
         // otherwise it might be null.
@@ -1639,7 +1723,7 @@ impl FfiWallet {
     /// # Arguments
     ///
     /// * `balance` - The total balance to distribute
-    /// * `percentages` - A slice of percentages that must sum to 100.0
+    /// * `ratios` - A slice of ratios that must sum to 1
     ///
     /// # Returns
     ///
@@ -1649,16 +1733,16 @@ impl FfiWallet {
     /// # Errors
     ///
     /// Returns an error if:
-    /// - Percentages don't sum to 1.0
+    /// - Ratios don't sum to 1.0
     /// - Balance is zero
     /// - There are more outputs than piconeros in balance
-    fn distribute(balance: monero::Amount, percentages: &[f64]) -> Result<Vec<monero::Amount>> {
-        if percentages.is_empty() {
+    fn distribute(balance: monero::Amount, ratios: &[f64]) -> Result<Vec<monero::Amount>> {
+        if ratios.is_empty() {
             bail!("No ratios to distribute to");
         }
 
         const TOLERANCE: f64 = 1e-6;
-        let sum: f64 = percentages.iter().sum();
+        let sum: f64 = ratios.iter().sum();
         if (sum - 1.0).abs() > TOLERANCE {
             bail!("Percentages must sum to 1 (actual sum: {})", sum);
         }
@@ -1669,7 +1753,7 @@ impl FfiWallet {
         }
 
         // Check if the distributable amount is enough to cover at least one piconero per output
-        if balance.as_pico() < percentages.len() as u64 {
+        if balance.as_pico() < ratios.len() as u64 {
             bail!("More outputs than piconeros in balance");
         }
 
@@ -1677,7 +1761,7 @@ impl FfiWallet {
         let mut total = Amount::ZERO;
 
         // Distribute amounts according to ratios, except for the last one
-        for &percentage in &percentages[..percentages.len() - 1] {
+        for &percentage in &ratios[..ratios.len() - 1] {
             let amount_pico = ((balance.as_pico() as f64) * percentage).floor() as u64;
             let amount = Amount::from_pico(amount_pico);
             amounts.push(amount);
@@ -1753,12 +1837,12 @@ impl FfiWallet {
     }
 
     /// Sign a message with the wallet's private key.
-    /// 
+    ///
     /// # Arguments
     /// * `message` - The message to sign (arbitrary byte data)
     /// * `address` - The address to use for signing (uses main address if None)
     /// * `sign_with_view_key` - Whether to sign with view key instead of spend key (default: false)
-    /// 
+    ///
     /// # Returns
     /// A proof type prefix + base58 encoded signature
     pub fn sign_message(
@@ -1769,16 +1853,21 @@ impl FfiWallet {
     ) -> anyhow::Result<String> {
         let_cxx_string!(message_cxx = message);
         let_cxx_string!(address_cxx = address.unwrap_or(""));
-        
-        let signature = ffi::signMessage(self.inner.pinned(), &message_cxx, &address_cxx, sign_with_view_key)
-            .context("Failed to sign message: FFI call failed with exception")?
-            .to_string();
-        
+
+        let signature = ffi::signMessage(
+            self.inner.pinned(),
+            &message_cxx,
+            &address_cxx,
+            sign_with_view_key,
+        )
+        .context("Failed to sign message: FFI call failed with exception")?
+        .to_string();
+
         if signature.is_empty() {
             self.check_error().context("Failed to sign message")?;
             anyhow::bail!("Failed to sign message (no signature returned)");
         }
-        
+
         Ok(signature)
     }
 }
@@ -1810,6 +1899,42 @@ impl PendingTransaction {
             "Experienced pending transaction error ({}): {}",
             error_type, error_string
         ))
+    }
+
+    /// Get the output amount of the pending transaction.
+    fn output_amount(&self) -> anyhow::Result<monero::Amount> {
+        let output_amount = self
+            .deref()
+            .amount()
+            .context("Failed to get output amount: FFI call failed with exception")?;
+        Ok(monero::Amount::from_pico(output_amount))
+    }
+
+    /// Get the change amount of the pending transaction.
+    fn change(&self) -> anyhow::Result<monero::Amount> {
+        let change = self
+            .deref()
+            .change()
+            .context("Failed to get change amount: FFI call failed with exception")?;
+        Ok(monero::Amount::from_pico(change))
+    }
+
+    /// Get the fee of the pending transaction.
+    fn fee(&self) -> anyhow::Result<monero::Amount> {
+        let fee = self
+            .deref()
+            .fee()
+            .context("Failed to get fee: FFI call failed with exception")?;
+        Ok(monero::Amount::from_pico(fee))
+    }
+
+    /// Get the dust of the pending transaction.
+    fn dust(&self) -> anyhow::Result<monero::Amount> {
+        let dust = self
+            .deref()
+            .dust()
+            .context("Failed to get dust: FFI call failed with exception")?;
+        Ok(monero::Amount::from_pico(dust))
     }
 
     /// Publish this transaction to the blockchain or return an error.

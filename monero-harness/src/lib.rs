@@ -30,7 +30,7 @@ use tokio::time;
 use monero::{Address, Amount};
 use monero_rpc::monerod::MonerodRpc as _;
 use monero_rpc::monerod::{self, GenerateBlocks};
-use monero_sys::{no_listener, Daemon, SyncProgress, TxReceipt, WalletHandle};
+use monero_sys::{no_listener, ChangeManagement, Daemon, SyncProgress, TxReceipt, WalletHandle};
 
 use crate::image::{MONEROD_DAEMON_CONTAINER_NAME, MONEROD_DEFAULT_NETWORK, RPC_PORT};
 
@@ -415,6 +415,7 @@ impl MoneroWallet {
             daemon,
             monero::Network::Mainnet,
             true,
+            ChangeManagement::Default,
         )
         .await
         .context("Failed to create or open wallet")?;
@@ -503,11 +504,9 @@ impl MoneroWallet {
     /// Sweep multiple addresses with different ratios
     /// If the address is `None`, the address will be set to the primary address of the
     /// main wallet.
-    pub async fn sweep_multi(&self, addresses: &[impl Into<Option<Address>> + Clone], ratios: &[f64]) -> Result<TxReceipt> {
+    pub async fn sweep_multi(&self, addresses: &[Address], ratios: &[f64]) -> Result<TxReceipt> {
         tracing::info!("`{}` sweeping multi ({:?})", self.name, ratios);
         self.balance().await?;
-
-        let addresses: Vec<Option<Address>> = addresses.iter().map(|a| a.clone().into()).collect();
 
         self.wallet
             .sweep_multi(&addresses, ratios)

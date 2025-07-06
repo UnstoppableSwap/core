@@ -244,6 +244,18 @@ pub mod ffi {
         /// Get the status of a pending transaction.
         fn status(self: &PendingTransaction) -> Result<i32>;
 
+        /// Get the change amount of a pending transaction.
+        fn change(self: &PendingTransaction) -> Result<u64>;
+
+        /// Get the output amount of a pending transaction (not including change).
+        fn amount(self: &PendingTransaction) -> Result<u64>;
+
+        /// Get the fee of a pending transaction (includes dust that is added to the fee).
+        fn fee(self: &PendingTransaction) -> Result<u64>;
+
+        /// Get the dust of a pending transaction.
+        fn dust(self: &PendingTransaction) -> Result<u64>;
+
         /// Get the error string of a pending transaction.
         fn pendingTransactionErrorString(tx: &PendingTransaction) -> Result<UniquePtr<CxxString>>;
 
