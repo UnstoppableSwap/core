@@ -19,6 +19,7 @@ import { sendMoneroTransaction, setMoneroRestoreHeight } from "renderer/rpc";
 import SendTransactionModal from "../SendTransactionModal";
 import { useNavigate } from "react-router-dom";
 import PromiseInvokeButton from "renderer/components/PromiseInvokeButton";
+import DfxButton from "./DFXWidget";
 
 interface WalletActionButtonsProps {
   balance: {
@@ -105,6 +106,7 @@ export default function WalletActionButtons({
           variant="button"
           clickable
         />
+        <DfxButton />
       </Box>
     </>
   );

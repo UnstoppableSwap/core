@@ -38,6 +38,7 @@ import {
   SendMoneroResponse,
   GetMoneroSyncProgressResponse,
   GetPendingApprovalsResponse,
+  DfxAuthenticateResponse,
   RejectApprovalArgs,
   RejectApprovalResponse,
   SetRestoreHeightArgs,
@@ -619,4 +620,8 @@ export async function saveFilesInDialog(files: Record<string, string>) {
   await invokeUnsafe<void>("save_txt_files", {
     files,
   });
+}
+
+export async function dfxAuthenticate(): Promise<DfxAuthenticateResponse> {
+  return await invokeNoArgs<DfxAuthenticateResponse>("dfx_authenticate");
 }

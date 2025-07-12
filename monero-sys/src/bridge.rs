@@ -103,6 +103,18 @@ pub mod ffi {
 
         type WalletListener;
 
+        unsafe fn create_listener(
+            on_spent: usize,
+            on_received: usize,
+            on_unconfirmed_received: usize,
+            on_new_block: usize,
+            on_updated: usize,
+            on_refreshed: usize,
+            on_reorg: usize,
+            on_pool_tx_removed: usize,
+            on_get_password: usize,
+        ) -> *mut WalletListener;
+
         ///virtual Wallet * openWallet(const std::string &path, const std::string &password, NetworkType nettype, uint64_t kdf_rounds = 1, WalletListener * listener = nullptr) = 0;
         unsafe fn openWallet(
             self: Pin<&mut WalletManager>,
@@ -318,6 +330,14 @@ pub mod ffi {
 
         /// Get the hash of the transaction.
         fn transactionInfoHash(tx_info: &TransactionInfo) -> UniquePtr<CxxString>;
+
+        /// Sign a message with the wallet's private key.
+        fn signMessage(
+            wallet: Pin<&mut Wallet>,
+            message: &CxxString,
+            address: &CxxString,
+            sign_with_view_key: bool,
+        ) -> Result<UniquePtr<CxxString>>;
     }
 }
 
