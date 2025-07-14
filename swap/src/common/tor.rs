@@ -1,3 +1,4 @@
+use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -7,6 +8,30 @@ use crate::cli::api::tauri_bindings::{
 use arti_client::{config::TorClientConfigBuilder, status::BootstrapStatus, Error, TorClient};
 use futures::StreamExt;
 use tor_rtcompat::tokio::TokioRustlsRuntime;
+
+fn is_whonix() -> bool {
+    fs::exists("/usr/share/whonix/marker").unwrap_or(false)
+}
+
+pub fn existing_tor_config() -> Option<(
+    libp2p_community_tor::tor_interface::legacy_tor_client::LegacyTorClientConfig,
+    std::net::SocketAddr,
+)> {
+    if is_whonix() {
+        Some((libp2p_community_tor::tor_interface::legacy_tor_client::LegacyTorClientConfig::system_from_environment().expect("whonix always $TOR_... set"),
+            ([0, 0, 0, 0], 9939).into()))
+    } else {
+        None
+    }
+}
+
+pub fn may_init_tor() -> bool {
+    let is_whonix = is_whonix();
+    if is_whonix {
+        tracing::info!("On whonix, not starting Tor");
+    }
+    !is_whonix
+}
 
 pub async fn init_tor_client(
     data_dir: &Path,

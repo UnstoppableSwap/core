@@ -19,6 +19,7 @@ use swap::cli::{
     },
     command::Bitcoin,
 };
+use swap::common::tor::may_init_tor;
 use tauri::{async_runtime::RwLock, Manager, RunEvent};
 use tauri_plugin_dialog::DialogExt;
 use zip::{write::SimpleFileOptions, ZipWriter};
@@ -179,6 +180,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_balance,
             get_monero_addresses,
+            get_tor_forced,
             get_swap_info,
             get_swap_infos_all,
             withdraw_btc,
@@ -258,6 +260,11 @@ tauri_command!(get_current_swap, GetCurrentSwapArgs, no_args);
 async fn is_context_available(context: tauri::State<'_, RwLock<State>>) -> Result<bool, String> {
     // TODO: Here we should return more information about status of the context (e.g. initializing, failed)
     Ok(context.read().await.try_get_context().is_ok())
+}
+
+#[tauri::command]
+async fn get_tor_forced(_: tauri::State<'_, RwLock<State>>) -> Result<bool, String> {
+    Ok(!may_init_tor())
 }
 
 #[tauri::command]
