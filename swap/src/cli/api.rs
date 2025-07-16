@@ -6,7 +6,6 @@ use crate::cli::command::{Bitcoin, Monero};
 use crate::common::tor::init_tor_client;
 use crate::common::tracing_util::Format;
 use crate::database::{open_db, AccessMode};
-use crate::monero::Wallets;
 use swap_env::env::{Config as EnvConfig, GetConfig, Mainnet, Testnet};
 use swap_fs::system_data_dir;
 use crate::network::rendezvous::XmrBtcNamespace;
@@ -188,7 +187,7 @@ pub struct Context {
     pub tasks: Arc<PendingTaskList>,
     tauri_handle: Option<TauriHandle>,
     bitcoin_wallet: Option<Arc<bitcoin::Wallet>>,
-    monero_manager: Option<Arc<monero::Wallets>>,
+    pub monero_manager: Option<Arc<monero::Wallets>>,
     tor_client: Option<Arc<TorClient<TokioRustlsRuntime>>>,
     #[allow(dead_code)]
     monero_rpc_pool_handle: Option<Arc<monero_rpc_pool::PoolHandle>>,

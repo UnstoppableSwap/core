@@ -767,6 +767,30 @@ impl WalletHandle {
         Ok(())
     }
 
+    /// Sign a message with the wallet's private key.
+    ///
+    /// # Arguments
+    /// * `message` - The message to sign (arbitrary byte data)
+    /// * `address` - The address to use for signing (uses main address if None)
+    /// * `sign_with_view_key` - Whether to sign with view key instead of spend key (default: false)
+    ///
+    /// # Returns
+    /// A proof type prefix + base58 encoded signature
+    pub async fn sign_message(
+        &self,
+        message: &str,
+        address: Option<&str>,
+        sign_with_view_key: bool,
+    ) -> anyhow::Result<String> {
+        let message = message.to_string();
+        let address = address.map(|s| s.to_string());
+
+        self.call(move |wallet| {
+            wallet.sign_message(&message, address.as_deref(), sign_with_view_key)
+        })
+        .await
+    }
+
     /// Creates pending transaction, gets approval, then publishes or disposes based on approval.
     /// Return `None` if the transaction is not published, `Some(receipt)` if it is published.
     /// If the amount is `None`, the transaction will be a sweep (whole balance)
@@ -887,30 +911,6 @@ impl WalletHandle {
         receiver
             .recv()
             .context("Failed to receive password verification result from thread")?
-    }
-
-    /// Sign a message with the wallet's private key.
-    ///
-    /// # Arguments
-    /// * `message` - The message to sign (arbitrary byte data)
-    /// * `address` - The address to use for signing (uses main address if None)
-    /// * `sign_with_view_key` - Whether to sign with view key instead of spend key (default: false)
-    ///
-    /// # Returns
-    /// A proof type prefix + base58 encoded signature
-    pub async fn sign_message(
-        &self,
-        message: &str,
-        address: Option<&str>,
-        sign_with_view_key: bool,
-    ) -> anyhow::Result<String> {
-        let message = message.to_string();
-        let address = address.map(|s| s.to_string());
-
-        self.call(move |wallet| {
-            wallet.sign_message(&message, address.as_deref(), sign_with_view_key)
-        })
-        .await
     }
 }
 
