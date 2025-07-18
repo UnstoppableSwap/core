@@ -1133,6 +1133,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "bitcoin-wallet"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "backoff",
+ "bdk",
+ "bdk_chain",
+ "bdk_electrum",
+ "bdk_wallet",
+ "bitcoin 0.32.6",
+ "derive_builder",
+ "ecdsa_fun",
+ "electrum-pool",
+ "futures",
+ "moka",
+ "monero",
+ "rand 0.8.5",
+ "rand_chacha 0.3.1",
+ "reqwest",
+ "rust_decimal",
+ "rust_decimal_macros",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "swap-env",
+ "swap-seed",
+ "swap-serde",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "typeshare",
+]
+
+[[package]]
 name = "bitcoin_hashes"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9898,6 +9932,25 @@ dependencies = [
  "anyhow",
  "directories-next",
  "tracing",
+]
+
+[[package]]
+name = "swap-seed"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "bdk",
+ "bitcoin 0.32.6",
+ "libp2p",
+ "monero-seed",
+ "pem",
+ "rand 0.8.5",
+ "serde",
+ "swap-fs",
+ "thiserror 1.0.69",
+ "tracing",
+ "zeroize",
 ]
 
 [[package]]
